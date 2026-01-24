@@ -1,0 +1,28 @@
+[project]
+name = "dj-flux2"
+version = "0.1.0"
+description = "Minimal FLUX.2 Klein 4B inference with CUDA support"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+authors = [
+  { name = "DJ", email = "dj@example.com" }
+]
+license = { text = "MIT" }
+
+dependencies = [
+  "torch>=2.8.0",
+  "torchvision>=0.23.0",
+  "einops>=0.8.1",
+  "transformers>=4.56.1",
+  "safetensors>=0.4.5",
+  "pillow>=10.0.0",
+  "huggingface-hub>=0.36.0",
+]
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# UV configuration for faster installs
+dev-dependencies = []

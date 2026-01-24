@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""
+Download required models for dj-flux2
+
+This script downloads:
+1. FLUX.2 Klein 4B transformer (~7.4 GB)
+2. Qwen3-4B-FP8 text encoder (~4.9 GB)
+3. FLUX.2-dev autoencoder (~321 MB)
+
+Total: ~12.6 GB
+
+Models are downloaded to ~/.cache/huggingface/hub/
+"""
+
+import sys
+from pathlib import Path
+
+try:
+    from huggingface_hub import hf_hub_download, login
+    from huggingface_hub.errors import HfHubHTTPError
+except ImportError:
+    print("Error: huggingface_hub not installed")
+    print("Install dependencies first: pip install -r requirements.txt")
+    sys.exit(1)
+
+
+def check_login():
+    """Check if user is logged in to Hugging Face"""
+    try:
+        from huggingface_hub import whoami
+
+        whoami()
+        return True
+    except Exception:
+        return False
+
+
+def download_model(repo_id: str, filename: str, description: str):
+    """Download a single model file"""
+    print(f"\n{'=' * 60}")
+    print(f"Downloading: {description}")
+    print(f"Repository: {repo_id}")
+    print(f"File: {filename}")
+    print(f"{'=' * 60}")
+
+    try:
+        path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="model",
+        )
+        print(f"✓ Downloaded to: {path}")
+        return True
+    except HfHubHTTPError as e:
+        if "403" in str(e):
+            print(f"\n✗ Error: Access denied to {repo_id}")
+            print("\nThis model requires accepting license terms:")
+            print(f"1. Visit: https://huggingface.co/{repo_id}")
+            print("2. Click 'Agree' to accept the license")
+            print("3. Run this script again")
+            return False
+        else:
+            print(f"\n✗ Error downloading: {e}")
+            return False
+    except Exception as e:
+        print(f"\n✗ Unexpected error: {e}")
+        return False
+
+
+def main():
+    print("=" * 60)
+    print("dj-flux2 Model Downloader")
+    print("=" * 60)
+    print("\nThis will download ~12.6 GB of models to:")
+    print("  ~/.cache/huggingface/hub/")
+    print("\nModels:")
+    print("  • FLUX.2 Klein 4B transformer (7.4 GB)")
+    print("  • Qwen3-4B-FP8 text encoder (4.9 GB)")
+    print("  • FLUX.2-dev autoencoder (321 MB)")
+
+    # Check login
+    if not check_login():
+        print("\n" + "=" * 60)
+        print("Hugging Face Login Required")
+        print("=" * 60)
+        print("\nYou need to login to download gated models.")
+        print("\nSteps:")
+        print("1. Create account at https://huggingface.co/join")
+        print("2. Accept FLUX.2-dev license at:")
+        print("   https://huggingface.co/black-forest-labs/FLUX.2-dev")
+        print("3. Create a token at https://huggingface.co/settings/tokens")
+        print("   - Select: 'Read access to contents of all public gated repos'")
+        print("4. Login: huggingface-cli login")
+        print("\nThen run this script again.")
+        sys.exit(1)
+
+    print("\n✓ Logged in to Hugging Face")
+
+    input("\nPress Enter to start downloading (Ctrl+C to cancel)...")
+
+    models = [
+        {
+            "repo_id": "black-forest-labs/FLUX.2-klein-4B",
+            "files": [
+                (
+                    "transformer/diffusion_pytorch_model.safetensors",
+                    "FLUX.2 Klein 4B Transformer",
+                ),
+                (
+                    "text_encoder/model-00001-of-00002.safetensors",
+                    "Qwen3-4B Text Encoder (part 1)",
+                ),
+                (
+                    "text_encoder/model-00002-of-00002.safetensors",
+                    "Qwen3-4B Text Encoder (part 2)",
+                ),
+                ("vae/diffusion_pytorch_model.safetensors", "VAE (from Klein-4B)"),
+            ],
+        },
+        {
+            "repo_id": "black-forest-labs/FLUX.2-dev",
+            "files": [
+                ("ae.safetensors", "FLUX.2-dev Autoencoder (VAE)"),
+            ],
+        },
+        {
+            "repo_id": "Qwen/Qwen3-4B-FP8",
+            "files": [
+                ("model-00001-of-00002.safetensors", "Qwen3-4B-FP8 (part 1)"),
+                ("model-00002-of-00002.safetensors", "Qwen3-4B-FP8 (part 2)"),
+            ],
+        },
+    ]
+
+    success_count = 0
+    total_count = sum(len(model["files"]) for model in models)
+
+    for model in models:
+        for filename, description in model["files"]:
+            if download_model(model["repo_id"], filename, description):
+                success_count += 1
+
+    print("\n" + "=" * 60)
+    print("Download Summary")
+    print("=" * 60)
+    print(f"Successfully downloaded: {success_count}/{total_count} files")
+
+    if success_count == total_count:
+        print("\n✓ All models downloaded successfully!")
+        print("\nYou can now run:")
+        print('  python generate_image.py "a cute cat"')
+    else:
+        print(f"\n✗ Failed to download {total_count - success_count} files")
+        print("Check the errors above and try again")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nDownload cancelled by user")
+        sys.exit(1)
