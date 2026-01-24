@@ -116,19 +116,44 @@ python download_models.py
 ### Text-to-Image
 
 ```bash
-# Basic usage
+# Basic usage (default 512x512)
 uv run generate_image.py "a majestic mountain landscape at sunset"
 
 # With custom output path
 uv run generate_image.py "a robot" -o my_robot.png
 
-# High resolution
+# Native high resolution (requires 16GB+ VRAM)
 uv run generate_image.py "detailed portrait" -W 1024 -H 1024
 
 # Reproducible with seed
 uv run generate_image.py "abstract art" -S 42
 ```
 > Tip: If using an activated venv, replace `uv run` with just `python`
+
+### High-Resolution Generation
+
+**Two approaches for high-resolution images:**
+
+**Native generation** (if you have 16GB+ VRAM):
+```bash
+uv run generate_image.py "detailed cityscape" -W 1024 -H 1024
+```
+
+**AI upscaling** (works on 12GB VRAM):
+```bash
+# Generate at 512x512, upscale to 1024x1024
+uv run generate_image.py "detailed cityscape" --upscale 2
+
+# Upscale to 2048x2048
+uv run generate_image.py "epic landscape" --upscale 4
+```
+
+**Upscale existing images:**
+```bash
+uv run upscale_image.py -i input.png -o output.png --scale 2
+```
+
+**Quality:** AI upscaling often produces results comparable to or better than native generation.
 
 ### Image-to-Image
 
@@ -164,6 +189,8 @@ Options:
   -s, --steps         Denoising steps (default: 4)
   -g, --guidance      Guidance scale (default: 1.0)
   -S, --seed          Random seed for reproducibility
+  --upscale           AI upscale output by 2x or 4x
+  --upscale-model     Upscaling model (default: RealESRGAN_x2plus)
 ```
 
 ## Performance
@@ -182,9 +209,21 @@ Options:
 
 ### Resolution Limits
 
+**Native generation:**
 - **Minimum**: 64x64
-- **Recommended**: 512x512 to 1024x1024
-- **Maximum**: 1792x1792
+- **Default**: 512x512
+- **Maximum**: Limited by GPU VRAM
+  - 12GB VRAM: 512x512 recommended
+  - 16GB VRAM: Up to 1024x1024
+  - 24GB+ VRAM: Up to 1792x1792 (model maximum)
+
+**With AI upscaling:**
+- No VRAM limitations for final output size
+- Generate at 512x512, upscale to 1024x1024 or 2048x2048
+- Uses ~1GB additional VRAM during upscaling
+- Performance: ~2-3 seconds for 2x upscaling on RTX 4070
+
+**Note:** All dimensions must be multiples of 16.
 
 ## Architecture
 
@@ -200,7 +239,15 @@ See [MODS-README.md](MODS-README.md) for detailed technical documentation.
 
 ### Out of Memory
 
-Reduce resolution:
+If native generation causes OOM errors, use AI upscaling instead:
+
+```bash
+# Instead of: -W 1024 -H 1024 (may cause OOM on 12GB VRAM)
+# Use: --upscale 2 (same result, lower VRAM)
+uv run generate_image.py "prompt" --upscale 2
+```
+
+Or reduce native resolution:
 ```bash
 uv run generate_image.py "prompt" -W 512 -H 512
 ```

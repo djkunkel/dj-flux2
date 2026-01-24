@@ -46,6 +46,10 @@ output/
 *.bin
 *.ckpt
 
+# Upscaling model weights
+weights/
+*.pth
+
 # OS
 .DS_Store
 Thumbs.db

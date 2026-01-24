@@ -22,11 +22,14 @@ uv run download_models.py
 ## Generate Images
 
 ```bash
-# Basic text-to-image
+# Basic text-to-image (default 512x512)
 uv run generate_image.py "a cute cat"
 
-# High resolution
+# Native high resolution (if you have 16GB+ VRAM)
 uv run generate_image.py "mountain landscape" -W 1024 -H 1024
+
+# AI upscaling to 1024x1024 (works on 12GB VRAM)
+uv run generate_image.py "mountain landscape" --upscale 2
 
 # Image-to-image transformation
 uv run generate_image.py "oil painting style" -i photo.jpg -o art.png
@@ -34,6 +37,28 @@ uv run generate_image.py "oil painting style" -i photo.jpg -o art.png
 # Reproducible (with seed)
 uv run generate_image.py "abstract art" -S 42
 ```
+
+## High-Resolution Images
+
+Two ways to get high-resolution output:
+
+**Native generation** (requires sufficient VRAM):
+```bash
+uv run generate_image.py "landscape" -W 1024 -H 1024
+```
+
+**AI upscaling** (works on any GPU):
+```bash
+# Generate + upscale in one command
+uv run generate_image.py "landscape" --upscale 2
+
+# Result: 1024x1024 image from 512x512 base
+```
+
+**Why use upscaling?**
+- Works on 12GB VRAM GPUs (native 1024x1024 needs 16GB+)
+- Often better quality than native high-res
+- Faster (~10s vs 30s+ for native 1024x1024)
 
 ## Why `uv run`?
 

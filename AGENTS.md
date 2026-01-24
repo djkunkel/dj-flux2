@@ -24,8 +24,17 @@ pip install -e .
 # Generate image (text-to-image)
 uv run generate_image.py "prompt" -o output.png
 
+# Native high resolution (requires sufficient VRAM)
+uv run generate_image.py "prompt" -W 1024 -H 1024 -o output.png
+
+# AI upscaling approach (VRAM efficient)
+uv run generate_image.py "prompt" --upscale 2 -o output.png
+
 # Image-to-image transformation
 uv run generate_image.py "style prompt" -i input.png -o output.png
+
+# Upscale existing image
+uv run upscale_image.py -i input.png -o output.png --scale 2
 
 # Download models
 uv run download_models.py
@@ -141,7 +150,7 @@ Do NOT add:
 
 ### 1. Minimal Dependencies
 - Only add dependencies that are absolutely required
-- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate
+- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, realesrgan, basicsr
 - Do NOT add: fire, click, typer, openai, or other "nice-to-have" packages
 
 ### 2. Submodule Respect
