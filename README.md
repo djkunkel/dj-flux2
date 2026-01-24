@@ -32,19 +32,20 @@ git submodule update --init --recursive
 
 ### 2. Install Dependencies
 
-Using uv (recommended):
+**Using uv (recommended):**
 ```bash
 uv venv
-source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
 uv pip install -e .
 ```
+> Note: `uv` manages the virtual environment automatically - no need to activate!
 
-Using pip:
+**Using traditional pip:**
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
 pip install -e .
 ```
+> Note: The `-e` flag installs in "editable mode" - code changes take effect immediately without reinstalling.
 
 ### 3. Setup Hugging Face Access
 
@@ -62,6 +63,10 @@ FLUX.2-dev requires accepting license terms:
 ### 4. Download Models
 
 ```bash
+# With uv
+uv run download_models.py
+
+# Or with activated venv
 python download_models.py
 ```
 
@@ -73,6 +78,10 @@ This downloads ~12.6 GB:
 ### 5. Generate Your First Image
 
 ```bash
+# With uv
+uv run generate_image.py "a cute cat sitting on a windowsill"
+
+# Or with activated venv
 python generate_image.py "a cute cat sitting on a windowsill"
 ```
 
@@ -80,21 +89,46 @@ Output: `output.png`
 
 ## Usage
 
+### Running Commands
+
+This project supports two approaches:
+
+**Approach 1: Using `uv run` (no activation needed)**
+```bash
+uv run generate_image.py "prompt"
+uv run download_models.py
+```
+- ✅ No need to activate virtual environment
+- ✅ `uv` automatically finds and uses `.venv/`
+- ✅ Shorter command syntax
+
+**Approach 2: Activated virtual environment**
+```bash
+source .venv/bin/activate  # Activate once per terminal session
+python generate_image.py "prompt"
+python download_models.py
+```
+- ✅ Traditional Python workflow
+- ✅ Works with any tool (not just uv)
+
+> **Examples below use `uv run`** - if using activated venv, replace `uv run` with `python`
+
 ### Text-to-Image
 
 ```bash
 # Basic usage
-python generate_image.py "a majestic mountain landscape at sunset"
+uv run generate_image.py "a majestic mountain landscape at sunset"
 
 # With custom output path
-python generate_image.py "a robot" -o my_robot.png
+uv run generate_image.py "a robot" -o my_robot.png
 
 # High resolution
-python generate_image.py "detailed portrait" -W 1024 -H 1024
+uv run generate_image.py "detailed portrait" -W 1024 -H 1024
 
 # Reproducible with seed
-python generate_image.py "abstract art" -S 42
+uv run generate_image.py "abstract art" -S 42
 ```
+> Tip: If using an activated venv, replace `uv run` with just `python`
 
 ### Image-to-Image
 
@@ -102,22 +136,22 @@ Transform existing images:
 
 ```bash
 # Turn photo into oil painting
-python generate_image.py "oil painting in impressionist style" \
+uv run generate_image.py "oil painting in impressionist style" \
   -i photo.jpg -o painting.png
 
 # Convert to pencil sketch
-python generate_image.py "pencil sketch, detailed line art, black and white" \
+uv run generate_image.py "pencil sketch, detailed line art, black and white" \
   -i portrait.jpg -o sketch.png
 
 # Style transfer
-python generate_image.py "watercolor painting with soft colors" \
+uv run generate_image.py "watercolor painting with soft colors" \
   -i landscape.jpg -o watercolor.png
 ```
 
 ### All Options
 
 ```bash
-python generate_image.py --help
+uv run generate_image.py --help
 ```
 
 ```
@@ -168,7 +202,7 @@ See [MODS-README.md](MODS-README.md) for detailed technical documentation.
 
 Reduce resolution:
 ```bash
-python generate_image.py "prompt" -W 512 -H 512
+uv run generate_image.py "prompt" -W 512 -H 512
 ```
 
 ### Slow Generation
