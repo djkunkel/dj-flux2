@@ -210,14 +210,7 @@ Examples:
         type=int,
         choices=[2, 4],
         default=None,
-        help="AI upscale output by 2x or 4x",
-    )
-    parser.add_argument(
-        "--upscale-model",
-        type=str,
-        default="RealESRGAN_x2plus",
-        choices=["RealESRGAN_x2plus", "RealESRGAN_x4plus"],
-        help="Upscaling model (default: RealESRGAN_x2plus)",
+        help="Upscale output by 2x or 4x using Lanczos resampling",
     )
 
     args = parser.parse_args()
@@ -233,9 +226,9 @@ Examples:
         seed=args.seed,
     )
 
-    # Optional AI upscaling
+    # Optional upscaling
     if args.upscale:
-        print(f"\nUpscaling {args.upscale}x with {args.upscale_model}...")
+        print(f"\nUpscaling {args.upscale}x...")
         try:
             from upscale_image import upscale_image
 
@@ -248,13 +241,10 @@ Examples:
                 input_path=args.output,
                 output_path=str(upscaled_path),
                 scale=args.upscale,
-                model_name=args.upscale_model,
             )
 
             print(f"✓ Upscaled version: {upscaled_path}")
 
-        except ImportError:
-            print("Warning: Upscaling requires: uv pip install realesrgan basicsr")
         except Exception as e:
             print(f"Warning: Upscaling failed: {e}")
 
