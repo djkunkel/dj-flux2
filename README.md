@@ -139,7 +139,7 @@ uv run generate_image.py "abstract art" -S 42
 uv run generate_image.py "detailed cityscape" -W 1024 -H 1024
 ```
 
-**AI upscaling** (works on 12GB VRAM):
+**Lanczos upscaling** (works on 12GB VRAM):
 ```bash
 # Generate at 512x512, upscale to 1024x1024
 uv run generate_image.py "detailed cityscape" --upscale 2
@@ -153,7 +153,7 @@ uv run generate_image.py "epic landscape" --upscale 4
 uv run upscale_image.py -i input.png -o output.png --scale 2
 ```
 
-**Quality:** AI upscaling often produces results comparable to or better than native generation.
+**Quality:** Lanczos is a professional-grade algorithm (used by Photoshop/GIMP) that produces excellent results for AI-generated images.
 
 ### Image-to-Image
 
@@ -189,8 +189,7 @@ Options:
   -s, --steps         Denoising steps (default: 4)
   -g, --guidance      Guidance scale (default: 1.0)
   -S, --seed          Random seed for reproducibility
-  --upscale           AI upscale output by 2x or 4x
-  --upscale-model     Upscaling model (default: RealESRGAN_x2plus)
+  --upscale           Upscale output by 2x or 4x (Lanczos)
 ```
 
 ## Performance
@@ -217,11 +216,11 @@ Options:
   - 16GB VRAM: Up to 1024x1024
   - 24GB+ VRAM: Up to 1792x1792 (model maximum)
 
-**With AI upscaling:**
+**With Lanczos upscaling:**
 - No VRAM limitations for final output size
 - Generate at 512x512, upscale to 1024x1024 or 2048x2048
-- Uses ~1GB additional VRAM during upscaling
-- Performance: ~2-3 seconds for 2x upscaling on RTX 4070
+- CPU-based, no additional VRAM needed
+- Performance: ~0.5 seconds for 2x upscaling
 
 **Note:** All dimensions must be multiples of 16.
 
@@ -239,11 +238,11 @@ See [MODS-README.md](MODS-README.md) for detailed technical documentation.
 
 ### Out of Memory
 
-If native generation causes OOM errors, use AI upscaling instead:
+If native generation causes OOM errors, use upscaling instead:
 
 ```bash
 # Instead of: -W 1024 -H 1024 (may cause OOM on 12GB VRAM)
-# Use: --upscale 2 (same result, lower VRAM)
+# Use: --upscale 2 (generates 512x512, upscales to 1024x1024)
 uv run generate_image.py "prompt" --upscale 2
 ```
 

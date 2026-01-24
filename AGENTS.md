@@ -27,7 +27,7 @@ uv run generate_image.py "prompt" -o output.png
 # Native high resolution (requires sufficient VRAM)
 uv run generate_image.py "prompt" -W 1024 -H 1024 -o output.png
 
-# AI upscaling approach (VRAM efficient)
+# Lanczos upscaling approach (VRAM efficient)
 uv run generate_image.py "prompt" --upscale 2 -o output.png
 
 # Image-to-image transformation
@@ -150,7 +150,7 @@ Do NOT add:
 
 ### 1. Minimal Dependencies
 - Only add dependencies that are absolutely required
-- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, realesrgan, basicsr
+- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate
 - Do NOT add: fire, click, typer, openai, or other "nice-to-have" packages
 
 ### 2. Submodule Respect

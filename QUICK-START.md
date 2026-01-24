@@ -47,7 +47,7 @@ Two ways to get high-resolution output:
 uv run generate_image.py "landscape" -W 1024 -H 1024
 ```
 
-**AI upscaling** (works on any GPU):
+**Lanczos upscaling** (works on any GPU):
 ```bash
 # Generate + upscale in one command
 uv run generate_image.py "landscape" --upscale 2
@@ -57,8 +57,8 @@ uv run generate_image.py "landscape" --upscale 2
 
 **Why use upscaling?**
 - Works on 12GB VRAM GPUs (native 1024x1024 needs 16GB+)
-- Often better quality than native high-res
-- Faster (~10s vs 30s+ for native 1024x1024)
+- Professional-grade Lanczos algorithm (used by Photoshop)
+- Fast (~8s total: 7s generation + 0.5s upscaling)
 
 ## Why `uv run`?
 
