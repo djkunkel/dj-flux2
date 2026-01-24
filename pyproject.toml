@@ -7,7 +7,7 @@ requires-python = ">=3.10,<3.13"
 authors = [
   { name = "DJ", email = "dj@example.com" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 
 dependencies = [
   "torch>=2.8.0",
@@ -23,6 +23,7 @@ dependencies = [
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.uv]
-# UV configuration for faster installs
-dev-dependencies = []
+[tool.setuptools]
+# Exclude submodule and output directory from package
+py-modules = []
+packages = []
