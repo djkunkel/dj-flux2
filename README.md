@@ -234,6 +234,7 @@ dj-flux2/
 ├── flux2/                 # BFL submodule (git)
 │   └── src/flux2/        # Core FLUX.2 code
 ├── pyproject.toml        # Dependencies
+├── uv.lock               # Locked dependency versions
 └── README.md             # This file
 ```
 
