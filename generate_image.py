@@ -53,7 +53,9 @@ def generate_image(
     print(f"Prompt: {prompt}")
     if input_image:
         print(f"Input: {input_image}")
-    print(f"Size: {width}x{height}, Steps: {num_steps}, Guidance: {guidance}, Seed: {seed}")
+    print(
+        f"Size: {width}x{height}, Steps: {num_steps}, Guidance: {guidance}, Seed: {seed}"
+    )
     print()
 
     # Clear CUDA cache
@@ -101,7 +103,9 @@ def generate_image(
         # Create noise
         shape = (1, 128, height // 16, width // 16)
         generator = torch.Generator(device="cuda").manual_seed(seed)
-        randn = torch.randn(shape, generator=generator, dtype=torch.bfloat16, device="cuda")
+        randn = torch.randn(
+            shape, generator=generator, dtype=torch.bfloat16, device="cuda"
+        )
         x, x_ids = batched_prc_img(randn)
 
         # Denoise with optional reference image conditioning
@@ -151,28 +155,70 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Text-to-image
+  # Text-to-image (default 512x512)
   python generate_image.py "a cute cat"
   
-  # Image-to-image transformation
-  python generate_image.py "oil painting style" -i photo.jpg -o painting.png
+  # Native high resolution (if you have VRAM)
+  python generate_image.py "a mountain" -W 1024 -H 1024
   
-  # High resolution with custom seed
-  python generate_image.py "a mountain landscape" -W 1024 -H 1024 -S 42
+  # 512x512 + AI upscaling to 1024x1024 (12GB VRAM friendly)
+  python generate_image.py "a mountain" --upscale 2
+  
+  # Image-to-image
+  python generate_image.py "oil painting" -i photo.jpg -o art.png
+  
+  # Upscale to 2048x2048
+  python generate_image.py "detailed scene" --upscale 4
 """,
     )
     parser.add_argument("prompt", type=str, help="Text prompt describing the image")
     parser.add_argument(
-        "-o", "--output", type=str, default="output.png", help="Output path (default: output.png)"
+        "-o",
+        "--output",
+        type=str,
+        default="output.png",
+        help="Output path (default: output.png)",
     )
     parser.add_argument(
-        "-i", "--input", type=str, default=None, help="Input image for image-to-image transformation"
+        "-i",
+        "--input",
+        type=str,
+        default=None,
+        help="Input image for image-to-image transformation",
     )
-    parser.add_argument("-W", "--width", type=int, default=512, help="Image width (default: 512)")
-    parser.add_argument("-H", "--height", type=int, default=512, help="Image height (default: 512)")
-    parser.add_argument("-s", "--steps", type=int, default=4, help="Number of steps (default: 4)")
-    parser.add_argument("-g", "--guidance", type=float, default=1.0, help="Guidance scale (default: 1.0)")
-    parser.add_argument("-S", "--seed", type=int, default=None, help="Random seed (default: random)")
+    parser.add_argument(
+        "-W", "--width", type=int, default=512, help="Image width (default: 512)"
+    )
+    parser.add_argument(
+        "-H", "--height", type=int, default=512, help="Image height (default: 512)"
+    )
+    parser.add_argument(
+        "-s", "--steps", type=int, default=4, help="Number of steps (default: 4)"
+    )
+    parser.add_argument(
+        "-g",
+        "--guidance",
+        type=float,
+        default=1.0,
+        help="Guidance scale (default: 1.0)",
+    )
+    parser.add_argument(
+        "-S", "--seed", type=int, default=None, help="Random seed (default: random)"
+    )
+    parser.add_argument(
+        "--upscale",
+        type=int,
+        choices=[2, 4],
+        default=None,
+        help="AI upscale output by 2x or 4x",
+    )
+    parser.add_argument(
+        "--upscale-model",
+        type=str,
+        default="RealESRGAN_x2plus",
+        choices=["RealESRGAN_x2plus", "RealESRGAN_x4plus"],
+        help="Upscaling model (default: RealESRGAN_x2plus)",
+    )
 
     args = parser.parse_args()
 
@@ -186,6 +232,31 @@ Examples:
         guidance=args.guidance,
         seed=args.seed,
     )
+
+    # Optional AI upscaling
+    if args.upscale:
+        print(f"\nUpscaling {args.upscale}x with {args.upscale_model}...")
+        try:
+            from upscale_image import upscale_image
+
+            base_path = Path(args.output)
+            upscaled_path = (
+                base_path.parent / f"{base_path.stem}_x{args.upscale}{base_path.suffix}"
+            )
+
+            upscale_image(
+                input_path=args.output,
+                output_path=str(upscaled_path),
+                scale=args.upscale,
+                model_name=args.upscale_model,
+            )
+
+            print(f"✓ Upscaled version: {upscaled_path}")
+
+        except ImportError:
+            print("Warning: Upscaling requires: uv pip install realesrgan basicsr")
+        except Exception as e:
+            print(f"Warning: Upscaling failed: {e}")
 
 
 if __name__ == "__main__":
