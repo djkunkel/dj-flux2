@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QGridLayout,
     QScrollArea,
+    QSizePolicy,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QImage
@@ -32,52 +33,78 @@ class ImagePreviewPanel(QWidget):
         super().__init__(parent)
         self.placeholder_text = placeholder_text
         self.min_size = min_size
+        self.original_pixmap = None  # Store original for scaling
         self._setup_ui(title)
 
     def _setup_ui(self, title: str):
         """Build the preview panel UI"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
 
-        # Title
+        # Title - fixed small height
         title_label = QLabel(title)
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        title_label.setFixedHeight(20)  # Small fixed height
 
-        # Preview label
+        # Preview label - expands to fill space
         self.preview_label = QLabel(self.placeholder_text)
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setMinimumSize(self.min_size, self.min_size)
-        self.preview_label.setStyleSheet("border: 1px solid #ccc; background: #f0f0f0;")
+        self.preview_label.setStyleSheet(
+            "border: 1px solid #ccc; background: #000000; color: #888888;"
+        )
         self.preview_label.setScaledContents(False)
 
+        # Make preview expand to fill available space
+        self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
         layout.addWidget(title_label)
-        layout.addWidget(self.preview_label)
+        layout.addWidget(self.preview_label, 1)  # Stretch factor of 1
 
     def display_image(self, image_path: str):
-        """Load and display image in preview (scaled to fit)"""
+        """Load and display image in preview (scaled to fit available space)"""
         try:
-            # Load with PIL and scale
+            # Load image and convert to QPixmap
             img = Image.open(image_path)
-            img.thumbnail((self.min_size, self.min_size), Image.Resampling.LANCZOS)
-
-            # Convert to QPixmap
             img = img.convert("RGB")
             data = img.tobytes("raw", "RGB")
             qimage = QImage(
                 data, img.width, img.height, img.width * 3, QImage.Format_RGB888
             )
-            pixmap = QPixmap.fromImage(qimage)
+            self.original_pixmap = QPixmap.fromImage(qimage)
 
-            # Display
-            self.preview_label.setPixmap(pixmap)
+            # Scale to current label size
+            self._update_scaled_pixmap()
             self.preview_label.setText("")
 
         except Exception as e:
             self.preview_label.setText(f"Error loading image:\n{str(e)}")
 
+    def _update_scaled_pixmap(self):
+        """Scale the pixmap to fit the current label size"""
+        if self.original_pixmap is None:
+            return
+
+        # Get available size (considering minimum size)
+        label_size = self.preview_label.size()
+
+        # Scale pixmap to fit while maintaining aspect ratio
+        scaled_pixmap = self.original_pixmap.scaled(
+            label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+
+        self.preview_label.setPixmap(scaled_pixmap)
+
+    def resizeEvent(self, event):
+        """Handle resize to scale image dynamically"""
+        super().resizeEvent(event)
+        self._update_scaled_pixmap()
+
     def clear(self):
         """Clear preview and show placeholder"""
+        self.original_pixmap = None
         self.preview_label.clear()
         self.preview_label.setText(self.placeholder_text)
 
@@ -386,17 +413,8 @@ class RightImagePanel(QWidget):
             # Show input preview
             self.input_preview.setVisible(True)
         else:
-            # Centered single preview for txt2img
-            self.main_layout.addStretch()
-
-            # Center the output preview
-            h_center = QHBoxLayout()
-            h_center.addStretch()
-            h_center.addWidget(self.output_preview)
-            h_center.addStretch()
-            self.main_layout.addLayout(h_center)
-
-            self.main_layout.addStretch()
+            # Single preview for txt2img - fill available space
+            self.main_layout.addWidget(self.output_preview)
 
             # Hide input preview
             self.input_preview.setVisible(False)
