@@ -34,7 +34,7 @@ def generate_image(
     num_steps: int = 4,
     guidance: float = 1.0,
     seed: int = None,
-):
+) -> int:
     """Generate an image using FLUX.2 Klein 4B
 
     Args:
@@ -46,6 +46,9 @@ def generate_image(
         num_steps: Number of denoising steps (4 is recommended for Klein)
         guidance: Guidance scale (1.0 is recommended for Klein)
         seed: Random seed for reproducibility (None for random)
+
+    Returns:
+        The seed used for generation (either provided or randomly generated)
     """
     model_name = "flux.2-klein-4b"
 
@@ -151,6 +154,8 @@ def generate_image(
 
     print(f"\n✓ Image saved to: {output_path}")
     print(f"  Seed: {seed} (use this to reproduce)")
+
+    return seed
 
 
 def main():

@@ -83,7 +83,7 @@ class GenerationWorker(QThread):
 
             # Generate image
             self.progress.emit("Generating image...", "orange")
-            generate_image(
+            actual_seed = generate_image(
                 prompt=prompt,
                 output_path=temp_path,
                 input_image=input_image,
@@ -94,8 +94,8 @@ class GenerationWorker(QThread):
                 seed=seed,
             )
 
-            # Store the seed
-            current_seed = seed if seed is not None else "Random (see EXIF)"
+            # Store the actual seed used (either provided or generated)
+            current_seed = actual_seed
 
             # Optionally upscale
             final_path = temp_path
@@ -131,7 +131,7 @@ class FluxGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FLUX.2 Klein Image Generator")
-        self.setMinimumSize(1400, 900)
+        self.setMinimumSize(900, 675)
 
         # State
         self.state = GuiState()
@@ -317,15 +317,7 @@ class FluxGUI(QMainWindow):
         """Copy current seed to seed input"""
         if self.state.current_seed is not None:
             self.left_panel.set_seed(self.state.current_seed)
-            QMessageBox.information(
-                self,
-                "Seed Copied",
-                f"Seed copied to input: {self.state.current_seed}",
-            )
-        else:
-            QMessageBox.information(
-                self, "No Seed", "Generate an image first to copy its seed"
-            )
+        # If no seed available, do nothing (user will see "Random" in the field)
 
     def _clear(self):
         """Reset form and preview"""
