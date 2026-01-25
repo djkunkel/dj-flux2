@@ -8,6 +8,7 @@ Minimal FLUX.2 Klein 4B inference implementation using official BFL code as a gi
 
 **Key features:**
 - Text-to-image and image-to-image generation
+- Interactive PySide6 (Qt6) GUI for experimentation
 - Traditional (Lanczos) and AI-based (Real-ESRGAN via Spandrel) upscaling
 - Minimal dependencies, educational code structure
 
@@ -26,6 +27,9 @@ pip install -e .
 
 ### Running Scripts
 ```bash
+# Launch interactive GUI
+uv run gui_generate.py
+
 # Generate image (text-to-image)
 uv run generate_image.py "prompt" -o output.png
 
@@ -45,6 +49,7 @@ uv run upscale_image.py -i input.png -o output.png --scale 2
 uv run download_models.py
 
 # With activated venv
+python gui_generate.py  # GUI
 python generate_image.py "prompt"
 ```
 
@@ -155,7 +160,9 @@ if seed is None:
 ### File Organization
 ```
 Project root only:
-├── generate_image.py    # Main script (keep under 200 lines)
+├── gui_generate.py      # Interactive GUI (~580 lines, uses PySide6/Qt6)
+├── generate_image.py    # Main script (keep under 300 lines)
+├── upscale_image.py     # Upscaling script
 ├── download_models.py   # Model downloader (keep focused)
 ├── pyproject.toml       # Dependencies only (minimal)
 └── *.md                 # Documentation
@@ -170,8 +177,9 @@ Do NOT add:
 
 ### 1. Minimal Dependencies
 - Only add dependencies that are absolutely required
-- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, spandrel
-- Do NOT add: fire, click, typer, openai, realesrgan (use spandrel instead), basicsr, or other "nice-to-have" packages
+- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, spandrel, PySide6
+- Do NOT add: fire, click, typer, openai, realesrgan (use spandrel instead), basicsr, gradio, streamlit, PyQt6, tkinterdnd2, or other "nice-to-have" packages
+- **GUI note**: Uses PySide6 (Qt6) for professional cross-platform GUI with proper threading support
 - **Spandrel note**: Use spandrel for AI upscaling instead of realesrgan package to avoid dependency conflicts
 
 ### 2. Submodule Respect

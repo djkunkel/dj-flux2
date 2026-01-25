@@ -19,6 +19,7 @@ dependencies = [
   "huggingface-hub>=0.36.0",
   "accelerate>=1.0.0",
   "spandrel>=0.4.0",
+  "PySide6>=6.6.0",
 ]
 
 [project.scripts]
@@ -26,6 +27,7 @@ dj-flux2 = "generate_image:main"
 dj-flux2-generate = "generate_image:main"
 dj-flux2-upscale = "upscale_image:main"
 dj-flux2-download = "download_models:main"
+dj-flux2-gui = "gui_generate:main"
 
 [build-system]
 requires = ["setuptools>=64", "wheel"]
@@ -33,5 +35,5 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 # Include the main scripts as modules
-py-modules = ["generate_image", "upscale_image", "download_models"]
+py-modules = ["generate_image", "upscale_image", "download_models", "gui_generate"]
 packages = []

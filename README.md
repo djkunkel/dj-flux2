@@ -7,6 +7,8 @@ Minimal FLUX.2 Klein 4B image generation with CUDA support. Fast, simple, and ed
 - 🚀 **Fast**: Sub-second generation on RTX 4070 (4-step distilled model)
 - 🎨 **Text-to-Image**: Generate images from text descriptions
 - 🖼️ **Image-to-Image**: Transform images with prompts
+- 🖥️ **GUI Interface**: Modern PySide6 (Qt6) app for easy experimentation
+- 🔍 **Real-time Preview**: See results side-by-side before saving
 - 💾 **Minimal**: Only ~200 lines of code + BFL submodule
 - 🎓 **Educational**: Clear code structure for learning
 - 🔧 **CUDA Accelerated**: Runs on NVIDIA GPUs
@@ -22,20 +24,22 @@ Minimal FLUX.2 Klein 4B image generation with CUDA support. Fast, simple, and ed
 
 ### Installation Options
 
-**Option 1: Install as a CLI tool (Recommended for users):**
+**Option 1: Install as a global tool (Recommended for all users):**
 ```bash
 git clone https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
 git submodule update --init --recursive
 
-# Install as a global tool
-uv tool install .
+# Install as a global tool (editable mode to access flux2 submodule)
+uv tool install --editable .
 
-# Commands become available globally:
+# All commands become available globally:
 dj-flux2 "your prompt"
+dj-flux2-gui              # Launch GUI
 dj-flux2-upscale -i input.png -o output.png
 dj-flux2-download
 ```
+**Note:** Use `--editable` flag so tools can access the flux2 git submodule.
 
 **Option 2: Local development setup:**
 ```bash
@@ -105,38 +109,74 @@ Output: `output.png`
 
 ## Usage
 
-### Command Options
+### GUI Interface (Interactive)
+
+For interactive experimentation with real-time preview, use the GUI tool:
+
+```bash
+# If installed as a tool (recommended):
+dj-flux2-gui
+
+# Or from the repository directory:
+uv run gui_generate.py
+# Or: python gui_generate.py (with activated venv)
+```
+
+**Note:** If using the global `dj-flux2-gui` command, make sure you installed with `uv tool install --editable .` so it can access the flux2 submodule.
+
+**The GUI provides:**
+- **Two modes**: Text-to-Image and Image-to-Image
+- **Side-by-side preview**: See input and output images together (img2img mode)
+- **All parameters**: Prompt, width, height, steps, guidance, seed
+- **Upscaling support**: Optional Lanczos or Real-ESRGAN upscaling
+- **Easy experimentation**: Adjust parameters and regenerate instantly
+- **Save when ready**: Only save images you like
+- **Seed management**: Copy and reuse seeds for reproducibility
+- **Modern Qt6 interface**: Professional, cross-platform GUI framework
+
+**Perfect for:**
+- Experimenting with different prompts
+- Fine-tuning generation parameters
+- Quick iteration on img2img transformations
+- Visual comparison of results
+
+### Command Line Options
 
 This project supports multiple ways to run commands:
 
 **Option 1: Installed as a tool (simplest):**
 ```bash
 dj-flux2 "prompt"
+dj-flux2-gui                  # Launch GUI
 dj-flux2-upscale -i input.png -o output.png
 dj-flux2-download
 ```
 - ✅ Available globally, no need to cd into project directory
 - ✅ No virtual environment activation needed
 - ✅ Clean command names
+- ✅ All tools including GUI work globally
 
-**Option 2: Using `uv run` (local development)**
+**Option 2: Using `uv run` (for development):**
 ```bash
 uv run generate_image.py "prompt"
+uv run gui_generate.py  # GUI
 uv run upscale_image.py -i input.png -o output.png
 ```
 - ✅ No need to activate virtual environment
 - ✅ Good for testing changes during development
+- ✅ No installation required
 
 **Option 3: Activated virtual environment**
 ```bash
 source .venv/bin/activate  # Activate once per terminal session
 python generate_image.py "prompt"
+python gui_generate.py  # GUI
 python upscale_image.py -i input.png -o output.png
 ```
 - ✅ Traditional Python workflow
 - ✅ Works with any tool (not just uv)
 
-> **Examples below show both tool commands and script commands**
+> **Note:** When using Option 1, install with `uv tool install --editable .` to ensure the flux2 submodule is accessible.
 
 ### Text-to-Image
 
@@ -219,6 +259,7 @@ dj-flux2 "watercolor painting with soft colors" -i landscape.jpg -o watercolor.p
 
 ```bash
 dj-flux2 --help
+dj-flux2-gui              # Launch GUI (no options)
 dj-flux2-upscale --help
 dj-flux2-download --help
 ```
@@ -338,10 +379,10 @@ dj-flux2/
 
 This is a **minimal, educational** implementation of FLUX.2 Klein:
 
-✅ **Minimal**: ~200 lines of code  
+✅ **Minimal**: ~200 lines of code (+ modern Qt6 GUI!)  
 ✅ **Fast**: 4-step generation  
 ✅ **Clear**: Easy to understand  
-✅ **Complete**: Text-to-image + image-to-image  
+✅ **Complete**: Text-to-image + image-to-image + interactive GUI  
 ✅ **Maintainable**: BFL code via submodule  
 
 **Not included** (from full BFL repo):
