@@ -160,7 +160,8 @@ if seed is None:
 ### File Organization
 ```
 Project root only:
-├── gui_generate.py      # Interactive GUI (~580 lines, uses PySide6/Qt6)
+├── gui_generate.py      # GUI main logic (~362 lines, uses PySide6/Qt6)
+├── gui_components.py    # GUI UI components (~407 lines, UI layout separated)
 ├── generate_image.py    # Main script (keep under 300 lines)
 ├── upscale_image.py     # Upscaling script
 ├── download_models.py   # Model downloader (keep focused)
@@ -169,8 +170,11 @@ Project root only:
 
 Do NOT add:
 - test/ directory (no test framework yet)
-- src/ directory (scripts stay in root)
+- src/ directory (scripts stay in root, except gui_components.py companion)
 - utils.py (keep code in main scripts)
+
+Note: gui_components.py is an exception - it contains UI layout code separated
+from gui_generate.py business logic for easier UI tweaking.
 ```
 
 ## Project-Specific Rules
