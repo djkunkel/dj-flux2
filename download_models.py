@@ -157,7 +157,9 @@ def main():
         print("Downloading Real-ESRGAN Models Only")
         print("=" * 60)
 
-        model_dir = Path("models/realesrgan")
+        # Use absolute path based on script location
+        script_dir = Path(__file__).parent.resolve()
+        model_dir = script_dir / "models" / "realesrgan"
         realesrgan_success = 0
         realesrgan_total = 2
 
@@ -233,7 +235,9 @@ def main():
         print("Downloading Real-ESRGAN Models")
         print("=" * 60)
 
-        model_dir = Path("models/realesrgan")
+        # Use absolute path based on script location
+        script_dir = Path(__file__).parent.resolve()
+        model_dir = script_dir / "models" / "realesrgan"
         realesrgan_success = 0
         realesrgan_total = 2
 

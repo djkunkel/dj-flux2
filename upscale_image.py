@@ -73,6 +73,7 @@ def _upscale_realesrgan(input_path: str, output_path: str, scale: int) -> str:
     import torch
     import numpy as np
     from spandrel import ModelLoader, ImageModelDescriptor
+    import os
 
     print(f"Upscaling {scale}x using Real-ESRGAN (AI)...")
 
@@ -83,7 +84,9 @@ def _upscale_realesrgan(input_path: str, output_path: str, scale: int) -> str:
         sys.exit(1)
 
     # Model paths (download via download_models.py --upscale-models)
-    model_dir = Path("models/realesrgan")
+    # Use absolute path based on script location
+    script_dir = Path(__file__).parent.resolve()
+    model_dir = script_dir / "models" / "realesrgan"
     model_filename = f"RealESRGAN_x{scale}plus.pth"
     model_path = model_dir / model_filename
 

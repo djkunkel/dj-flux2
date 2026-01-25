@@ -7,8 +7,12 @@ from einops import rearrange
 from PIL import Image, ExifTags
 from pathlib import Path
 import sys
+import os
 
-sys.path.insert(0, "flux2/src")
+# Add flux2/src to path (handle both local and installed as tool)
+script_dir = Path(__file__).parent.resolve()
+flux2_src = script_dir / "flux2" / "src"
+sys.path.insert(0, str(flux2_src))
 
 from flux2.util import load_flow_model, load_text_encoder, load_ae
 from flux2.sampling import (
