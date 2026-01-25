@@ -180,12 +180,16 @@ class LeftConfigPanel(QWidget):
         prompt_layout = QVBoxLayout()
 
         self.prompt_text = QTextEdit()
-        self.prompt_text.setMaximumHeight(80)
+        self.prompt_text.setMinimumHeight(80)  # Minimum height for usability
+        # No maximum height - will expand to fill available space
         self.prompt_text.setPlainText("a cute cat sitting on a windowsill")
+        # Set size policy to allow vertical expansion
+        self.prompt_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         prompt_layout.addWidget(self.prompt_text)
         prompt_group.setLayout(prompt_layout)
-        layout.addWidget(prompt_group)
+        # Add with stretch factor to allow resizing
+        layout.addWidget(prompt_group, 1)
 
         # Parameters
         params_group = QGroupBox("Generation Parameters")
