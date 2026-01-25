@@ -161,13 +161,16 @@ Examples:
   # Native high resolution (if you have VRAM)
   python generate_image.py "a mountain" -W 1024 -H 1024
   
-  # 512x512 + AI upscaling to 1024x1024 (12GB VRAM friendly)
+  # 512x512 + AI upscaling to 1024x1024 (default when using --upscale)
   python generate_image.py "a mountain" --upscale 2
+  
+  # Use Lanczos for faster CPU-based upscaling
+  python generate_image.py "a mountain" --upscale 2 --upscale-method lanczos
   
   # Image-to-image
   python generate_image.py "oil painting" -i photo.jpg -o art.png
   
-  # Upscale to 2048x2048
+  # 4x AI upscale to 2048x2048
   python generate_image.py "detailed scene" --upscale 4
 """,
     )
@@ -210,43 +213,76 @@ Examples:
         type=int,
         choices=[2, 4],
         default=None,
-        help="Upscale output by 2x or 4x using Lanczos resampling",
+        help="Upscale output by 2x or 4x",
+    )
+    parser.add_argument(
+        "--upscale-method",
+        type=str,
+        choices=["lanczos", "realesrgan"],
+        default="realesrgan",
+        help="Upscaling method: realesrgan (AI, default) or lanczos (fast, CPU)",
     )
 
     args = parser.parse_args()
 
-    generate_image(
-        prompt=args.prompt,
-        output_path=args.output,
-        input_image=args.input,
-        width=args.width,
-        height=args.height,
-        num_steps=args.steps,
-        guidance=args.guidance,
-        seed=args.seed,
-    )
-
-    # Optional upscaling
+    # If upscaling, generate to a temp file first, then upscale to final output
     if args.upscale:
-        print(f"\nUpscaling {args.upscale}x...")
+        import tempfile
+        import os
+
+        # Create temp file for intermediate image
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".png", prefix="flux_temp_")
+        os.close(temp_fd)  # Close file descriptor, we just need the path
+
         try:
+            # Generate to temp file
+            generate_image(
+                prompt=args.prompt,
+                output_path=temp_path,
+                input_image=args.input,
+                width=args.width,
+                height=args.height,
+                num_steps=args.steps,
+                guidance=args.guidance,
+                seed=args.seed,
+            )
+
+            # Upscale temp file to final output
+            method_name = (
+                "Real-ESRGAN (AI)" if args.upscale_method == "realesrgan" else "Lanczos"
+            )
+            print(f"\nUpscaling {args.upscale}x with {method_name}...")
+
             from upscale_image import upscale_image
 
-            base_path = Path(args.output)
-            upscaled_path = (
-                base_path.parent / f"{base_path.stem}_x{args.upscale}{base_path.suffix}"
-            )
-
             upscale_image(
-                input_path=args.output,
-                output_path=str(upscaled_path),
+                input_path=temp_path,
+                output_path=args.output,
                 scale=args.upscale,
+                method=args.upscale_method,
             )
 
-            print(f"✓ Upscaled version: {upscaled_path}")
+            print(f"✓ Final upscaled image: {args.output}")
 
         except Exception as e:
-            print(f"Warning: Upscaling failed: {e}")
+            print(f"Error during upscaling: {e}")
+            raise
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    else:
+        # No upscaling, generate directly to output
+        generate_image(
+            prompt=args.prompt,
+            output_path=args.output,
+            input_image=args.input,
+            width=args.width,
+            height=args.height,
+            num_steps=args.steps,
+            guidance=args.guidance,
+            seed=args.seed,
+        )
 
 
 if __name__ == "__main__":

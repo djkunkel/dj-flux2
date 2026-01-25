@@ -6,6 +6,11 @@
 
 Minimal FLUX.2 Klein 4B inference implementation using official BFL code as a git submodule. Focus: simplicity, clarity, and educational value.
 
+**Key features:**
+- Text-to-image and image-to-image generation
+- Traditional (Lanczos) and AI-based (Real-ESRGAN via Spandrel) upscaling
+- Minimal dependencies, educational code structure
+
 ## Build/Run Commands
 
 ### Installation
@@ -60,6 +65,21 @@ uv run python -c "import sys; sys.path.insert(0, 'flux2/src'); from flux2.util i
 ```bash
 # No linters configured - keep code clean manually
 # Follow existing code style in generate_image.py and download_models.py
+```
+
+### Testing AI Upscaling
+```bash
+# Download AI upscaling models (only needed once)
+uv run download_models.py --upscale-only
+
+# Test Lanczos (default, fast)
+uv run upscale_image.py -i test.png -o test_lanczos_2x.png --scale 2
+
+# Test Real-ESRGAN (AI quality)
+uv run upscale_image.py -i test.png -o test_ai_2x.png --scale 2 --method realesrgan
+
+# Test integrated with generate_image.py
+uv run generate_image.py "test" --upscale 2 --upscale-method realesrgan
 ```
 
 ## Code Style Guidelines
@@ -150,8 +170,9 @@ Do NOT add:
 
 ### 1. Minimal Dependencies
 - Only add dependencies that are absolutely required
-- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate
-- Do NOT add: fire, click, typer, openai, or other "nice-to-have" packages
+- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, spandrel
+- Do NOT add: fire, click, typer, openai, realesrgan (use spandrel instead), basicsr, or other "nice-to-have" packages
+- **Spandrel note**: Use spandrel for AI upscaling instead of realesrgan package to avoid dependency conflicts
 
 ### 2. Submodule Respect
 - NEVER modify files in `flux2/` directory (it's a git submodule)
@@ -163,6 +184,15 @@ Do NOT add:
 - Update QUICK-START.md for workflow changes
 - Keep docs in sync with code changes
 - No stale documentation
+
+### 3.5. AI Upscaling (Real-ESRGAN via Spandrel)
+- Models are downloaded via `download_models.py --upscale-only`
+- Stored in `models/realesrgan/` directory (not in HF cache)
+- Use Spandrel's `ModelLoader().load_from_file()` to load models
+- Default to Lanczos unless user explicitly requests Real-ESRGAN
+- Real-ESRGAN requires CUDA (exit gracefully if not available)
+- Test both methods when modifying upscale code
+- Model files: `RealESRGAN_x2plus.pth` (64 MB), `RealESRGAN_x4plus.pth` (64 MB)
 
 ### 4. Git Commit Style
 ```bash

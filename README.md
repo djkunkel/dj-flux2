@@ -63,17 +63,24 @@ FLUX.2-dev requires accepting license terms:
 ### 4. Download Models
 
 ```bash
-# With uv
+# With uv (required models only)
 uv run download_models.py
 
 # Or with activated venv
 python download_models.py
+
+# Optional: Download AI upscaling models for Real-ESRGAN
+uv run download_models.py --upscale-only
 ```
 
-This downloads ~12.6 GB:
-- FLUX.2 Klein 4B transformer (7.4 GB)
-- Qwen3-4B-FP8 text encoder (4.9 GB)
-- FLUX.2-dev autoencoder (321 MB)
+This downloads:
+- **FLUX models** (~12.6 GB):
+  - FLUX.2 Klein 4B transformer (7.4 GB)
+  - Qwen3-4B-FP8 text encoder (4.9 GB)
+  - FLUX.2-dev autoencoder (321 MB)
+- **Optional AI upscaling models** (~128 MB):
+  - Real-ESRGAN 2x model (64 MB)
+  - Real-ESRGAN 4x model (64 MB)
 
 ### 5. Generate Your First Image
 
@@ -132,28 +139,51 @@ uv run generate_image.py "abstract art" -S 42
 
 ### High-Resolution Generation
 
-**Two approaches for high-resolution images:**
+**Three approaches for high-resolution images:**
 
-**Native generation** (if you have 16GB+ VRAM):
+**1. Native generation** (if you have 16GB+ VRAM):
 ```bash
 uv run generate_image.py "detailed cityscape" -W 1024 -H 1024
 ```
 
-**Lanczos upscaling** (works on 12GB VRAM):
+**2. Lanczos upscaling** (fast, CPU-based):
 ```bash
-# Generate at 512x512, upscale to 1024x1024
-uv run generate_image.py "detailed cityscape" --upscale 2
+# Generate at 512x512, upscale to 1024x1024 with Lanczos
+uv run generate_image.py "detailed cityscape" --upscale 2 --upscale-method lanczos
 
-# Upscale to 2048x2048
-uv run generate_image.py "epic landscape" --upscale 4
+# Upscale to 2048x2048 with Lanczos
+uv run generate_image.py "epic landscape" --upscale 4 --upscale-method lanczos
 ```
+
+**3. AI upscaling with Real-ESRGAN** (best quality, default when using --upscale):
+```bash
+# First, download the AI upscaling models (~128 MB)
+uv run download_models.py --upscale-only
+
+# Generate and AI upscale to 1024x1024 in one step (default)
+uv run generate_image.py "detailed cityscape" -o output.png --upscale 2
+
+# Generate and AI upscale to 2048x2048 in one step
+uv run generate_image.py "epic landscape" -o output.png --upscale 4
+
+# Or explicitly use Lanczos for faster CPU-based upscaling
+uv run generate_image.py "detailed cityscape" -o output.png --upscale 2 --upscale-method lanczos
+```
+
+> **Note:** When using `--upscale`, only the final upscaled image is saved to your output path. A temporary intermediate image is used during processing and automatically deleted.
 
 **Upscale existing images:**
 ```bash
+# Lanczos (fast, CPU)
 uv run upscale_image.py -i input.png -o output.png --scale 2
+
+# AI upscaling (better quality, GPU)
+uv run upscale_image.py -i input.png -o output.png --scale 2 --method realesrgan
 ```
 
-**Quality:** Lanczos is a professional-grade algorithm (used by Photoshop/GIMP) that produces excellent results for AI-generated images.
+**Quality comparison:**
+- **Real-ESRGAN** (default): AI-based upscaling with superior detail recovery, ~2-5s, best for recovering fine textures and faces
+- **Lanczos**: Professional-grade traditional upscaling (Photoshop/GIMP), fast (~0.5s), excellent when speed matters
 
 ### Image-to-Image
 
@@ -189,7 +219,8 @@ Options:
   -s, --steps         Denoising steps (default: 4)
   -g, --guidance      Guidance scale (default: 1.0)
   -S, --seed          Random seed for reproducibility
-  --upscale           Upscale output by 2x or 4x (Lanczos)
+  --upscale           Upscale output by 2x or 4x (uses AI by default)
+  --upscale-method    realesrgan (AI, default) or lanczos (fast, CPU)
 ```
 
 ## Performance
@@ -216,11 +247,16 @@ Options:
   - 16GB VRAM: Up to 1024x1024
   - 24GB+ VRAM: Up to 1792x1792 (model maximum)
 
-**With Lanczos upscaling:**
+**With upscaling:**
+
+| Method | Speed (2x) | Quality | VRAM | Setup Required |
+|--------|-----------|---------|------|----------------|
+| **Real-ESRGAN** (default) | ~2-5s | Superior | +2GB | Download models |
+| **Lanczos** | ~0.5s | Excellent | None (CPU) | None |
+
 - No VRAM limitations for final output size
 - Generate at 512x512, upscale to 1024x1024 or 2048x2048
-- CPU-based, no additional VRAM needed
-- Performance: ~0.5 seconds for 2x upscaling
+- Real-ESRGAN provides best results for recovering fine details, textures, and faces
 
 **Note:** All dimensions must be multiples of 16.
 

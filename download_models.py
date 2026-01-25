@@ -6,14 +6,18 @@ This script downloads:
 1. FLUX.2 Klein 4B transformer (~7.4 GB)
 2. Qwen3-4B-FP8 text encoder (~4.9 GB)
 3. FLUX.2-dev autoencoder (~321 MB)
+4. Real-ESRGAN upscaling models (optional, ~128 MB)
 
-Total: ~12.6 GB
+Total: ~12.6 GB (+ optional 128 MB)
 
-Models are downloaded to ~/.cache/huggingface/hub/
+Models are downloaded to:
+- FLUX models: ~/.cache/huggingface/hub/
+- Real-ESRGAN: models/realesrgan/
 """
 
 import sys
 from pathlib import Path
+import urllib.request
 
 try:
     from huggingface_hub import hf_hub_download, login
@@ -67,7 +71,55 @@ def download_model(repo_id: str, filename: str, description: str):
         return False
 
 
+def download_realesrgan_model(scale: int, model_dir: Path) -> bool:
+    """Download Real-ESRGAN model"""
+    model_urls = {
+        2: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+        4: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+    }
+
+    if scale not in model_urls:
+        print(f"Error: Unsupported scale {scale}")
+        return False
+
+    url = model_urls[scale]
+    filename = f"RealESRGAN_x{scale}plus.pth"
+    filepath = model_dir / filename
+
+    if filepath.exists():
+        print(f"  ✓ Already exists: {filepath}")
+        return True
+
+    print(f"\nDownloading Real-ESRGAN {scale}x model...")
+    print(f"  URL: {url}")
+    print(f"  Destination: {filepath}")
+
+    try:
+        model_dir.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(url, filepath)
+        print(f"  ✓ Downloaded: {filepath}")
+        return True
+    except Exception as e:
+        print(f"  ✗ Error: {e}")
+        return False
+
+
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Download models for dj-flux2")
+    parser.add_argument(
+        "--upscale-models",
+        action="store_true",
+        help="Also download Real-ESRGAN upscaling models (2x and 4x)",
+    )
+    parser.add_argument(
+        "--upscale-only",
+        action="store_true",
+        help="Only download Real-ESRGAN models, skip FLUX models",
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
     print("dj-flux2 Model Downloader")
     print("=" * 60)
@@ -77,6 +129,11 @@ def main():
     print("  • FLUX.2 Klein 4B transformer (7.4 GB)")
     print("  • Qwen3-4B-FP8 text encoder (4.9 GB)")
     print("  • FLUX.2-dev autoencoder (321 MB)")
+
+    if args.upscale_models:
+        print("\nOptional upscaling models:")
+        print("  • Real-ESRGAN 2x model (64 MB)")
+        print("  • Real-ESRGAN 4x model (64 MB)")
 
     # Check login
     if not check_login():
@@ -93,6 +150,31 @@ def main():
         print("4. Login: huggingface-cli login")
         print("\nThen run this script again.")
         sys.exit(1)
+
+    # Skip FLUX download if only upscale models requested
+    if args.upscale_only:
+        print("\n" + "=" * 60)
+        print("Downloading Real-ESRGAN Models Only")
+        print("=" * 60)
+
+        model_dir = Path("models/realesrgan")
+        realesrgan_success = 0
+        realesrgan_total = 2
+
+        for scale in [2, 4]:
+            if download_realesrgan_model(scale, model_dir):
+                realesrgan_success += 1
+
+        print(
+            f"\n✓ Downloaded {realesrgan_success}/{realesrgan_total} Real-ESRGAN models"
+        )
+
+        if realesrgan_success == realesrgan_total:
+            print("\nYou can now use AI upscaling:")
+            print(
+                '  uv run generate_image.py "prompt" --upscale 2 --upscale-method realesrgan'
+            )
+        return
 
     print("\n✓ Logged in to Hugging Face")
 
@@ -145,10 +227,34 @@ def main():
     print("=" * 60)
     print(f"Successfully downloaded: {success_count}/{total_count} files")
 
+    # Download Real-ESRGAN models if requested
+    if args.upscale_models:
+        print("\n" + "=" * 60)
+        print("Downloading Real-ESRGAN Models")
+        print("=" * 60)
+
+        model_dir = Path("models/realesrgan")
+        realesrgan_success = 0
+        realesrgan_total = 2
+
+        for scale in [2, 4]:
+            if download_realesrgan_model(scale, model_dir):
+                realesrgan_success += 1
+
+        print(f"\nReal-ESRGAN: {realesrgan_success}/{realesrgan_total} models")
+
     if success_count == total_count:
-        print("\n✓ All models downloaded successfully!")
+        print("\n✓ All FLUX models downloaded successfully!")
         print("\nYou can now run:")
         print('  python generate_image.py "a cute cat"')
+
+        if args.upscale_models:
+            if realesrgan_success == realesrgan_total:
+                print("\n✓ All Real-ESRGAN models downloaded successfully!")
+                print("\nFor AI upscaling:")
+                print(
+                    '  python generate_image.py "prompt" --upscale 2 --upscale-method realesrgan'
+                )
     else:
         print(f"\n✗ Failed to download {total_count - success_count} files")
         print("Check the errors above and try again")
