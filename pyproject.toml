@@ -21,11 +21,17 @@ dependencies = [
   "spandrel>=0.4.0",
 ]
 
+[project.scripts]
+dj-flux2 = "generate_image:main"
+dj-flux2-generate = "generate_image:main"
+dj-flux2-upscale = "upscale_image:main"
+dj-flux2-download = "download_models:main"
+
 [build-system]
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-# Exclude submodule and output directory from package
-py-modules = []
+# Include the main scripts as modules
+py-modules = ["generate_image", "upscale_image", "download_models"]
 packages = []

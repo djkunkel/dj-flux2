@@ -20,34 +20,40 @@ Minimal FLUX.2 Klein 4B image generation with CUDA support. Fast, simple, and ed
 
 ## Quick Start
 
-### 1. Clone the Repository
+### Installation Options
 
+**Option 1: Install as a CLI tool (Recommended for users):**
 ```bash
 git clone https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
-
-# Initialize the submodule
 git submodule update --init --recursive
+
+# Install as a global tool
+uv tool install .
+
+# Commands become available globally:
+dj-flux2 "your prompt"
+dj-flux2-upscale -i input.png -o output.png
+dj-flux2-download
 ```
 
-### 2. Install Dependencies
-
-**Using uv (recommended):**
+**Option 2: Local development setup:**
 ```bash
+git clone https://github.com/yourusername/dj-flux2.git
+cd dj-flux2
+git submodule update --init --recursive
+
+# Using uv (recommended)
 uv venv
 uv pip install -e .
-```
-> Note: `uv` manages the virtual environment automatically - no need to activate!
 
-**Using traditional pip:**
-```bash
+# Using traditional pip
 python -m venv .venv
 source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
 pip install -e .
 ```
-> Note: The `-e` flag installs in "editable mode" - code changes take effect immediately without reinstalling.
 
-### 3. Setup Hugging Face Access
+### Setup Hugging Face Access
 
 FLUX.2-dev requires accepting license terms:
 
@@ -60,17 +66,19 @@ FLUX.2-dev requires accepting license terms:
    huggingface-cli login
    ```
 
-### 4. Download Models
+### Download Models
 
 ```bash
-# With uv (required models only)
-uv run download_models.py
+# If installed as a tool:
+dj-flux2-download
 
-# Or with activated venv
-python download_models.py
+# If using local development setup:
+uv run download_models.py
+# Or: python download_models.py
 
 # Optional: Download AI upscaling models for Real-ESRGAN
-uv run download_models.py --upscale-only
+dj-flux2-download --upscale-only
+# Or: uv run download_models.py --upscale-only
 ```
 
 This downloads:
@@ -82,60 +90,70 @@ This downloads:
   - Real-ESRGAN 2x model (64 MB)
   - Real-ESRGAN 4x model (64 MB)
 
-### 5. Generate Your First Image
+### Generate Your First Image
 
 ```bash
-# With uv
-uv run generate_image.py "a cute cat sitting on a windowsill"
+# If installed as a tool:
+dj-flux2 "a cute cat sitting on a windowsill"
 
-# Or with activated venv
-python generate_image.py "a cute cat sitting on a windowsill"
+# If using local development:
+uv run generate_image.py "a cute cat sitting on a windowsill"
+# Or: python generate_image.py "a cute cat sitting on a windowsill"
 ```
 
 Output: `output.png`
 
 ## Usage
 
-### Running Commands
+### Command Options
 
-This project supports two approaches:
+This project supports multiple ways to run commands:
 
-**Approach 1: Using `uv run` (no activation needed)**
+**Option 1: Installed as a tool (simplest):**
+```bash
+dj-flux2 "prompt"
+dj-flux2-upscale -i input.png -o output.png
+dj-flux2-download
+```
+- ✅ Available globally, no need to cd into project directory
+- ✅ No virtual environment activation needed
+- ✅ Clean command names
+
+**Option 2: Using `uv run` (local development)**
 ```bash
 uv run generate_image.py "prompt"
-uv run download_models.py
+uv run upscale_image.py -i input.png -o output.png
 ```
 - ✅ No need to activate virtual environment
-- ✅ `uv` automatically finds and uses `.venv/`
-- ✅ Shorter command syntax
+- ✅ Good for testing changes during development
 
-**Approach 2: Activated virtual environment**
+**Option 3: Activated virtual environment**
 ```bash
 source .venv/bin/activate  # Activate once per terminal session
 python generate_image.py "prompt"
-python download_models.py
+python upscale_image.py -i input.png -o output.png
 ```
 - ✅ Traditional Python workflow
 - ✅ Works with any tool (not just uv)
 
-> **Examples below use `uv run`** - if using activated venv, replace `uv run` with `python`
+> **Examples below show both tool commands and script commands**
 
 ### Text-to-Image
 
 ```bash
 # Basic usage (default 512x512)
-uv run generate_image.py "a majestic mountain landscape at sunset"
+dj-flux2 "a majestic mountain landscape at sunset"
+# Or: uv run generate_image.py "a majestic mountain landscape at sunset"
 
 # With custom output path
-uv run generate_image.py "a robot" -o my_robot.png
+dj-flux2 "a robot" -o my_robot.png
 
 # Native high resolution (requires 16GB+ VRAM)
-uv run generate_image.py "detailed portrait" -W 1024 -H 1024
+dj-flux2 "detailed portrait" -W 1024 -H 1024
 
 # Reproducible with seed
-uv run generate_image.py "abstract art" -S 42
+dj-flux2 "abstract art" -S 42
 ```
-> Tip: If using an activated venv, replace `uv run` with just `python`
 
 ### High-Resolution Generation
 
@@ -143,31 +161,28 @@ uv run generate_image.py "abstract art" -S 42
 
 **1. Native generation** (if you have 16GB+ VRAM):
 ```bash
-uv run generate_image.py "detailed cityscape" -W 1024 -H 1024
+dj-flux2 "detailed cityscape" -W 1024 -H 1024
 ```
 
 **2. Lanczos upscaling** (fast, CPU-based):
 ```bash
-# Generate at 512x512, upscale to 1024x1024 with Lanczos
-uv run generate_image.py "detailed cityscape" --upscale 2 --upscale-method lanczos
-
-# Upscale to 2048x2048 with Lanczos
-uv run generate_image.py "epic landscape" --upscale 4 --upscale-method lanczos
+dj-flux2 "detailed cityscape" --upscale 2 --upscale-method lanczos
+dj-flux2 "epic landscape" --upscale 4 --upscale-method lanczos
 ```
 
 **3. AI upscaling with Real-ESRGAN** (best quality, default when using --upscale):
 ```bash
 # First, download the AI upscaling models (~128 MB)
-uv run download_models.py --upscale-only
+dj-flux2-download --upscale-only
 
 # Generate and AI upscale to 1024x1024 in one step (default)
-uv run generate_image.py "detailed cityscape" -o output.png --upscale 2
+dj-flux2 "detailed cityscape" -o output.png --upscale 2
 
 # Generate and AI upscale to 2048x2048 in one step
-uv run generate_image.py "epic landscape" -o output.png --upscale 4
+dj-flux2 "epic landscape" -o output.png --upscale 4
 
 # Or explicitly use Lanczos for faster CPU-based upscaling
-uv run generate_image.py "detailed cityscape" -o output.png --upscale 2 --upscale-method lanczos
+dj-flux2 "detailed cityscape" -o output.png --upscale 2 --upscale-method lanczos
 ```
 
 > **Note:** When using `--upscale`, only the final upscaled image is saved to your output path. A temporary intermediate image is used during processing and automatically deleted.
@@ -175,10 +190,10 @@ uv run generate_image.py "detailed cityscape" -o output.png --upscale 2 --upscal
 **Upscale existing images:**
 ```bash
 # Lanczos (fast, CPU)
-uv run upscale_image.py -i input.png -o output.png --scale 2
+dj-flux2-upscale -i input.png -o output.png --scale 2
 
 # AI upscaling (better quality, GPU)
-uv run upscale_image.py -i input.png -o output.png --scale 2 --method realesrgan
+dj-flux2-upscale -i input.png -o output.png --scale 2 --method realesrgan
 ```
 
 **Quality comparison:**
@@ -191,22 +206,21 @@ Transform existing images:
 
 ```bash
 # Turn photo into oil painting
-uv run generate_image.py "oil painting in impressionist style" \
-  -i photo.jpg -o painting.png
+dj-flux2 "oil painting in impressionist style" -i photo.jpg -o painting.png
 
 # Convert to pencil sketch
-uv run generate_image.py "pencil sketch, detailed line art, black and white" \
-  -i portrait.jpg -o sketch.png
+dj-flux2 "pencil sketch, detailed line art, black and white" -i portrait.jpg -o sketch.png
 
 # Style transfer
-uv run generate_image.py "watercolor painting with soft colors" \
-  -i landscape.jpg -o watercolor.png
+dj-flux2 "watercolor painting with soft colors" -i landscape.jpg -o watercolor.png
 ```
 
 ### All Options
 
 ```bash
-uv run generate_image.py --help
+dj-flux2 --help
+dj-flux2-upscale --help
+dj-flux2-download --help
 ```
 
 ```
