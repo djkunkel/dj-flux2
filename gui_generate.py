@@ -130,7 +130,7 @@ class FluxGUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("FLUX.2 Klein Image Generator")
+        self.setWindowTitle("DJ FLUX.2")
         self.setMinimumSize(900, 675)
 
         # State

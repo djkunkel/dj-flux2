@@ -139,7 +139,7 @@ class LeftConfigPanel(QWidget):
         layout.setSpacing(10)
 
         # Title
-        title = QLabel("FLUX.2 Klein Image Generator")
+        title = QLabel("DJ's FLUX.2 Klein Generator")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
