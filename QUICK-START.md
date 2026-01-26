@@ -108,7 +108,7 @@ uv run generate_image.py --help
 
 ## Requirements
 
-- Python 3.10+ (3.12 recommended)
+- Python 3.10-3.14 (3.12+ recommended)
 - NVIDIA GPU with 12+ GB VRAM
 - CUDA 12.x
 - ~13 GB disk space for models

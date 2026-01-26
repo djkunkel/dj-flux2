@@ -3,7 +3,7 @@ name = "dj-flux2"
 version = "0.1.0"
 description = "Minimal FLUX.2 Klein 4B inference with CUDA support"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.15"
 authors = [
   { name = "DJ", email = "dj@example.com" }
 ]
@@ -32,6 +32,9 @@ dj-flux2-gui = "gui_generate:main"
 [build-system]
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+python-preference = "only-managed"
 
 [tool.setuptools]
 # Include the main scripts as modules

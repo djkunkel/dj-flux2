@@ -15,7 +15,7 @@ Minimal FLUX.2 Klein 4B image generation with CUDA support. Fast, simple, and ed
 
 ## Requirements
 
-- Python 3.10+ (3.12 recommended)
+- Python 3.10-3.14 (3.12+ recommended)
 - NVIDIA GPU with 12+ GB VRAM (RTX 3090/4070 or better)
 - CUDA 12.x
 - ~13 GB disk space for models
