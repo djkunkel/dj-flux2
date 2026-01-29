@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """
-Download required models for dj-flux2
+Download required models for dj-flux2 (FLUX.2 Klein 4B)
+
+Downloads are based on FLUX2_MODEL_INFO['flux.2-klein-4b'] requirements from the
+flux2 submodule. This provides model-specific configuration including repo IDs,
+filenames, and default parameters.
 
 This script downloads:
 1. FLUX.2 Klein 4B transformer (~7.4 GB)
+   - File: flux-2-klein-4b.safetensors (top-level file in Klein-4B repo)
 2. Qwen3-4B-FP8 text encoder (~4.9 GB)
+   - Loaded via load_qwen3_embedder(variant="4B") from separate Qwen repo
 3. FLUX.2-dev autoencoder (~321 MB)
-4. Real-ESRGAN upscaling models (optional, ~128 MB)
+   - File: ae.safetensors (shared across all FLUX models)
+   - Klein models don't have ae.safetensors in their repos - this is expected
 
-Total: ~12.6 GB (+ optional 128 MB)
+Total: ~12.6 GB (+ optional 128 MB for Real-ESRGAN)
 
 Models are downloaded to:
 - FLUX models: ~/.cache/huggingface/hub/
@@ -125,10 +132,10 @@ def main():
     print("=" * 60)
     print("\nThis will download ~12.6 GB of models to:")
     print("  ~/.cache/huggingface/hub/")
-    print("\nModels:")
+    print("\nModels (from FLUX2_MODEL_INFO):")
     print("  • FLUX.2 Klein 4B transformer (7.4 GB)")
     print("  • Qwen3-4B-FP8 text encoder (4.9 GB)")
-    print("  • FLUX.2-dev autoencoder (321 MB)")
+    print("  • FLUX.2-dev autoencoder - shared (321 MB)")
 
     if args.upscale_models:
         print("\nOptional upscaling models:")
@@ -182,36 +189,37 @@ def main():
 
     input("\nPress Enter to start downloading (Ctrl+C to cancel)...")
 
+    # Model files to download (matches FLUX2_MODEL_INFO requirements)
+    # - Klein 4B: flux-2-klein-4b.safetensors (transformer)
+    # - FLUX.2-dev: ae.safetensors (shared autoencoder for all models)
+    # - Qwen3-4B-FP8: text encoder (loaded separately by load_qwen3_embedder)
     models = [
         {
             "repo_id": "black-forest-labs/FLUX.2-klein-4B",
             "files": [
-                (
-                    "transformer/diffusion_pytorch_model.safetensors",
-                    "FLUX.2 Klein 4B Transformer",
-                ),
-                (
-                    "text_encoder/model-00001-of-00002.safetensors",
-                    "Qwen3-4B Text Encoder (part 1)",
-                ),
-                (
-                    "text_encoder/model-00002-of-00002.safetensors",
-                    "Qwen3-4B Text Encoder (part 2)",
-                ),
-                ("vae/diffusion_pytorch_model.safetensors", "VAE (from Klein-4B)"),
+                ("flux-2-klein-4b.safetensors", "FLUX.2 Klein 4B Transformer"),
             ],
         },
         {
             "repo_id": "black-forest-labs/FLUX.2-dev",
             "files": [
-                ("ae.safetensors", "FLUX.2-dev Autoencoder (VAE)"),
+                (
+                    "ae.safetensors",
+                    "FLUX.2-dev Autoencoder (shared by all FLUX models)",
+                ),
             ],
         },
         {
             "repo_id": "Qwen/Qwen3-4B-FP8",
             "files": [
-                ("model-00001-of-00002.safetensors", "Qwen3-4B-FP8 (part 1)"),
-                ("model-00002-of-00002.safetensors", "Qwen3-4B-FP8 (part 2)"),
+                (
+                    "model-00001-of-00002.safetensors",
+                    "Qwen3-4B-FP8 Text Encoder (part 1)",
+                ),
+                (
+                    "model-00002-of-00002.safetensors",
+                    "Qwen3-4B-FP8 Text Encoder (part 2)",
+                ),
             ],
         },
     ]

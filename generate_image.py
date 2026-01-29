@@ -14,7 +14,7 @@ script_dir = Path(__file__).parent.resolve()
 flux2_src = script_dir / "flux2" / "src"
 sys.path.insert(0, str(flux2_src))
 
-from flux2.util import load_flow_model, load_text_encoder, load_ae
+from flux2.util import load_flow_model, load_text_encoder, load_ae, FLUX2_MODEL_INFO
 from flux2.sampling import (
     batched_prc_txt,
     batched_prc_img,
@@ -24,6 +24,19 @@ from flux2.sampling import (
     encode_image_refs,
 )
 
+# Model configuration from FLUX2_MODEL_INFO (flux2 submodule)
+# This provides model-specific defaults and configuration
+MODEL_NAME = "flux.2-klein-4b"
+MODEL_INFO = FLUX2_MODEL_INFO[MODEL_NAME]
+
+# Extract default values for this model
+DEFAULT_STEPS = MODEL_INFO["defaults"]["num_steps"]  # 4
+DEFAULT_GUIDANCE = MODEL_INFO["defaults"]["guidance"]  # 1.0
+
+# Note: All FLUX models share the flux.2-dev autoencoder
+# Klein models don't have ae.safetensors in their repos - this is expected per BFL's design
+AE_MODEL_NAME = "flux.2-dev"
+
 
 def generate_image(
     prompt: str,
@@ -31,8 +44,8 @@ def generate_image(
     input_image: str = None,
     width: int = 512,
     height: int = 512,
-    num_steps: int = 4,
-    guidance: float = 1.0,
+    num_steps: int = DEFAULT_STEPS,
+    guidance: float = DEFAULT_GUIDANCE,
     seed: int = None,
 ) -> int:
     """Generate an image using FLUX.2 Klein 4B
@@ -50,7 +63,7 @@ def generate_image(
     Returns:
         The seed used for generation (either provided or randomly generated)
     """
-    model_name = "flux.2-klein-4b"
+    model_name = MODEL_NAME
 
     if seed is None:
         seed = torch.randint(0, 2**32, (1,)).item()
@@ -77,7 +90,7 @@ def generate_image(
     model = load_flow_model(model_name, device="cpu")
 
     print("[3/3] Loading autoencoder...")
-    ae = load_ae("flux.2-dev", device=device)
+    ae = load_ae(AE_MODEL_NAME, device=device)  # Shared across all FLUX models
 
     ae.eval()
     text_encoder.eval()
@@ -143,7 +156,8 @@ def generate_image(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     exif_data = Image.Exif()
-    exif_data[ExifTags.Base.Software] = "FLUX.2 Klein 4B"
+    model_display_name = MODEL_INFO["repo_id"].split("/")[-1]
+    exif_data[ExifTags.Base.Software] = f"FLUX.2 {model_display_name}"
     exif_data[ExifTags.Base.Make] = "Black Forest Labs"
     desc = f"Prompt: {prompt} | Seed: {seed}"
     if input_image:
@@ -205,14 +219,18 @@ Examples:
         "-H", "--height", type=int, default=512, help="Image height (default: 512)"
     )
     parser.add_argument(
-        "-s", "--steps", type=int, default=4, help="Number of steps (default: 4)"
+        "-s",
+        "--steps",
+        type=int,
+        default=DEFAULT_STEPS,
+        help=f"Number of steps (default: {DEFAULT_STEPS})",
     )
     parser.add_argument(
         "-g",
         "--guidance",
         type=float,
-        default=1.0,
-        help="Guidance scale (default: 1.0)",
+        default=DEFAULT_GUIDANCE,
+        help=f"Guidance scale (default: {DEFAULT_GUIDANCE})",
     )
     parser.add_argument(
         "-S", "--seed", type=int, default=None, help="Random seed (default: random)"
