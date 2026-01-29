@@ -66,6 +66,11 @@ class ImagePreviewPanel(QWidget):
     def display_image(self, image_path: str):
         """Load and display image in preview (scaled to fit available space)"""
         try:
+            # Release old pixmap before loading new one (prevent memory leak)
+            if self.original_pixmap is not None:
+                self.preview_label.clear()
+                self.original_pixmap = None
+
             # Load image and convert to QPixmap
             img = Image.open(image_path)
             img = img.convert("RGB")
@@ -74,6 +79,9 @@ class ImagePreviewPanel(QWidget):
                 data, img.width, img.height, img.width * 3, QImage.Format_RGB888
             )
             self.original_pixmap = QPixmap.fromImage(qimage)
+
+            # Close PIL Image to release memory immediately
+            img.close()
 
             # Scale to current label size
             self._update_scaled_pixmap()
@@ -304,6 +312,20 @@ class LeftConfigPanel(QWidget):
         button_layout.addWidget(self.clear_btn)
         layout.addLayout(button_layout)
 
+        # Model status and control
+        model_control_layout = QHBoxLayout()
+
+        self.model_status_label = QLabel("Models: Not loaded")
+        self.model_status_label.setStyleSheet("color: gray; font-size: 10px;")
+
+        self.unload_models_btn = QPushButton("Unload Models")
+        self.unload_models_btn.setEnabled(False)
+        self.unload_models_btn.setToolTip("Free GPU/RAM by unloading models")
+
+        model_control_layout.addWidget(self.model_status_label)
+        model_control_layout.addWidget(self.unload_models_btn)
+        layout.addLayout(model_control_layout)
+
         layout.addStretch()
 
         # Set scroll content
@@ -367,6 +389,24 @@ class LeftConfigPanel(QWidget):
     def set_seed(self, seed: int | str):
         """Set seed value in combo box"""
         self.seed_combo.setCurrentText(str(seed))
+
+    def update_model_status(self, is_loaded: bool, memory_str: str = ""):
+        """Update model status indicator
+
+        Args:
+            is_loaded: Whether models are currently loaded in memory
+            memory_str: Memory usage string (e.g., "~4.2 GB")
+        """
+        if is_loaded:
+            self.model_status_label.setText(f"Models: Loaded ({memory_str})")
+            self.model_status_label.setStyleSheet(
+                "color: green; font-size: 10px; font-weight: bold;"
+            )
+            self.unload_models_btn.setEnabled(True)
+        else:
+            self.model_status_label.setText("Models: Not loaded")
+            self.model_status_label.setStyleSheet("color: gray; font-size: 10px;")
+            self.unload_models_btn.setEnabled(False)
 
 
 class RightImagePanel(QWidget):

@@ -3,6 +3,7 @@
 
 import sys
 import os
+import gc
 from pathlib import Path
 import tempfile
 from datetime import datetime
@@ -30,7 +31,7 @@ from PIL import Image
 from gui_components import LeftConfigPanel, RightImagePanel
 
 # Import existing generation functions
-from generate_image import generate_image
+from generate_image import generate_image, model_cache
 from upscale_image import upscale_image
 
 
@@ -40,6 +41,7 @@ class GuiState:
     def __init__(self):
         self.input_image_path: Optional[str] = None
         self.generated_image_path: Optional[str] = None
+        self.previous_temp_file: Optional[str] = None
         self.current_seed: Optional[int] = None
         self.worker: Optional[QThread] = None
 
@@ -48,6 +50,15 @@ class GuiState:
         self.input_image_path = None
         self.generated_image_path = None
         self.current_seed = None
+
+    def cleanup_temp_file(self, filepath: Optional[str] = None):
+        """Safely delete a temp file"""
+        target = filepath if filepath else self.previous_temp_file
+        if target and os.path.exists(target):
+            try:
+                os.remove(target)
+            except Exception:
+                pass  # Silently ignore cleanup errors
 
 
 class GenerationWorker(QThread):
@@ -185,6 +196,9 @@ class FluxGUI(QMainWindow):
         self.left_panel.copy_seed_btn.clicked.connect(self._copy_seed)
         self.left_panel.clear_btn.clicked.connect(self._clear)
 
+        # Model management
+        self.left_panel.unload_models_btn.clicked.connect(self._unload_models)
+
     def _on_mode_change(self):
         """Handle mode switching"""
         is_img2img = self.left_panel.is_img2img_mode()
@@ -200,6 +214,12 @@ class FluxGUI(QMainWindow):
             self.state.input_image_path = None
             self.left_panel.input_label.setText("No image selected")
             self.right_panel.input_preview.clear()
+
+        # Clear all previews to release memory when switching modes
+        self.right_panel.clear_previews()
+
+        # Force garbage collection to free pixmap memory
+        gc.collect()
 
     def _browse_input_image(self):
         """Open file picker for input image"""
@@ -237,6 +257,24 @@ class FluxGUI(QMainWindow):
             QMessageBox.critical(self, "Error", error_msg)
             return
 
+        # Clean up previous generation to prevent memory leaks
+        if self.state.previous_temp_file:
+            self.state.cleanup_temp_file()
+            self.state.previous_temp_file = None
+
+        # Clean up previous worker thread
+        if self.state.worker is not None:
+            # Disconnect signals to prevent stale connections
+            self.state.worker.progress.disconnect()
+            self.state.worker.finished.disconnect()
+            self.state.worker.error.disconnect()
+            # Schedule for deletion
+            self.state.worker.deleteLater()
+            self.state.worker = None
+
+        # Force garbage collection to free memory from previous generation
+        gc.collect()
+
         # Update UI state
         self.left_panel.generate_btn.setEnabled(False)
         self.left_panel.status_label.setText("Generating...")
@@ -264,6 +302,9 @@ class FluxGUI(QMainWindow):
 
     def _on_generation_complete(self, image_path: str, seed):
         """Handle successful generation"""
+        # Store previous temp file for cleanup on next generation
+        self.state.previous_temp_file = self.state.generated_image_path
+
         self.state.generated_image_path = image_path
         self.state.current_seed = seed
 
@@ -276,11 +317,28 @@ class FluxGUI(QMainWindow):
         self.left_panel.generate_btn.setEnabled(True)
         self.left_panel.save_btn.setEnabled(True)
 
+        # Update model status indicator (models are now loaded and cached)
+        if model_cache.is_loaded():
+            mem = model_cache.get_memory_estimate()
+            self.left_panel.update_model_status(True, mem)
+
+        # Clean up worker and force garbage collection
+        if self.state.worker is not None:
+            self.state.worker.deleteLater()
+            self.state.worker = None
+        gc.collect()
+
     def _on_generation_error(self, error_msg: str):
         """Handle generation error"""
         self.left_panel.status_label.setText("Error")
         self.left_panel.status_label.setStyleSheet("color: red; font-weight: bold;")
         self.left_panel.generate_btn.setEnabled(True)
+
+        # Clean up worker and force garbage collection even on error
+        if self.state.worker is not None:
+            self.state.worker.deleteLater()
+            self.state.worker = None
+        gc.collect()
 
         QMessageBox.critical(
             self, "Generation Error", f"Failed to generate image:\n\n{error_msg}"
@@ -319,6 +377,20 @@ class FluxGUI(QMainWindow):
             self.left_panel.set_seed(self.state.current_seed)
         # If no seed available, do nothing (user will see "Random" in the field)
 
+    def _unload_models(self):
+        """Unload models to free GPU/RAM memory"""
+        if model_cache.is_loaded():
+            model_cache.clear()
+            self.left_panel.update_model_status(False)
+            QMessageBox.information(
+                self,
+                "Models Unloaded",
+                "Models have been unloaded. Memory has been freed.\n\n"
+                "They will be reloaded automatically on next generation.",
+            )
+        else:
+            QMessageBox.information(self, "Info", "Models are not currently loaded")
+
     def _clear(self):
         """Reset form and preview"""
         # Reset left panel
@@ -338,6 +410,19 @@ class FluxGUI(QMainWindow):
                 os.remove(self.state.generated_image_path)
             except:
                 pass
+
+        # Clean up previous temp file too
+        if self.state.previous_temp_file:
+            self.state.cleanup_temp_file()
+            self.state.previous_temp_file = None
+
+        # Unload models to free GPU/RAM memory
+        if model_cache.is_loaded():
+            model_cache.clear()
+            self.left_panel.update_model_status(False)
+
+        # Force garbage collection to free all memory
+        gc.collect()
 
 
 def main():

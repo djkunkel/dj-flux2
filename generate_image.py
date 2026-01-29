@@ -2,6 +2,7 @@
 """Simple image generation script for FLUX.2 Klein 4B with CUDA support"""
 
 import argparse
+import gc
 import torch
 from einops import rearrange
 from PIL import Image, ExifTags
@@ -36,6 +37,103 @@ DEFAULT_GUIDANCE = MODEL_INFO["defaults"]["guidance"]  # 1.0
 # Note: All FLUX models share the flux.2-dev autoencoder
 # Klein models don't have ae.safetensors in their repos - this is expected per BFL's design
 AE_MODEL_NAME = "flux.2-dev"
+
+
+class ModelCache:
+    """Singleton cache for FLUX models - load once, reuse many times
+
+    This dramatically speeds up subsequent generations by keeping models
+    in GPU/RAM memory instead of reloading from disk each time.
+    """
+
+    _instance = None
+    _models = None
+    _model_name = None
+    _ae_model_name = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def is_loaded(self) -> bool:
+        """Check if models are currently loaded"""
+        return self._models is not None
+
+    def load_models(self, model_name: str, ae_model_name: str, device):
+        """Load models if not cached, return cached models
+
+        Args:
+            model_name: Name of the main FLUX model
+            ae_model_name: Name of the autoencoder model
+            device: Target device (typically 'cuda')
+
+        Returns:
+            Dictionary with 'text_encoder', 'model', and 'ae' keys
+        """
+        # If already loaded with same model names, return cached
+        if self._models and self._model_name == model_name:
+            print("Using cached models (fast path)")
+            return self._models
+
+        # Different model or first load
+        if self._models:
+            print("Clearing old models...")
+            self.clear()
+
+        print("[1/3] Loading text encoder...")
+        text_encoder = load_text_encoder(model_name, device=device)
+
+        print("[2/3] Loading transformer...")
+        model = load_flow_model(model_name, device="cpu")
+
+        print("[3/3] Loading autoencoder...")
+        ae = load_ae(ae_model_name, device=device)
+
+        ae.eval()
+        text_encoder.eval()
+
+        self._models = {
+            "text_encoder": text_encoder,
+            "model": model,
+            "ae": ae,
+        }
+        self._model_name = model_name
+        self._ae_model_name = ae_model_name
+
+        print("✓ Models loaded and cached")
+        return self._models
+
+    def clear(self):
+        """Unload models and free GPU/RAM"""
+        if self._models:
+            # Move to CPU first to free VRAM
+            for name, model in self._models.items():
+                if hasattr(model, "cpu"):
+                    model.cpu()
+
+            # Delete references
+            del self._models
+            self._models = None
+            self._model_name = None
+            self._ae_model_name = None
+
+            # Force cleanup
+            torch.cuda.empty_cache()
+            gc.collect()
+
+            print("✓ Models unloaded, memory freed")
+
+    def get_memory_estimate(self) -> str:
+        """Return approximate memory usage string"""
+        if not self.is_loaded():
+            return "0 MB"
+        # Rough estimates: text_encoder ~1.2GB, model ~2.8GB, ae ~0.2GB
+        return "~4.2 GB"
+
+
+# Global singleton instance
+model_cache = ModelCache()
 
 
 def generate_image(
@@ -82,18 +180,19 @@ def generate_image(
     torch.cuda.empty_cache()
     device = torch.device("cuda")
 
-    # Load models
-    print("[1/3] Loading text encoder...")
-    text_encoder = load_text_encoder(model_name, device=device)
+    # Load models (cached if available for fast subsequent generations)
+    models = model_cache.load_models(model_name, AE_MODEL_NAME, device)
+    text_encoder = models["text_encoder"]
+    model = models["model"]
+    ae = models["ae"]
 
-    print("[2/3] Loading transformer...")
-    model = load_flow_model(model_name, device="cpu")
-
-    print("[3/3] Loading autoencoder...")
-    ae = load_ae(AE_MODEL_NAME, device=device)  # Shared across all FLUX models
-
-    ae.eval()
-    text_encoder.eval()
+    # VRAM management: Move models to optimal devices for this generation
+    # Strategy: Only keep what we need on GPU at each stage to avoid OOM
+    # Start with text encoder and ae on GPU, model on CPU
+    text_encoder = text_encoder.to(device)
+    ae = ae.to(device)
+    model = model.cpu()  # Keep on CPU until after text encoding
+    torch.cuda.empty_cache()
 
     print(f"\nGenerating {mode.lower()}...")
     with torch.no_grad():
@@ -113,11 +212,11 @@ def generate_image(
                 print(f"  Using input image dimensions: {width}x{height}")
             ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
-        # Move text encoder to CPU to free VRAM
+        # Move text encoder to CPU to free VRAM for transformer
         text_encoder = text_encoder.cpu()
         torch.cuda.empty_cache()
 
-        # Move model to GPU
+        # Move transformer model to GPU (now that text encoder is off GPU)
         model = model.to(device)
 
         # Create noise
@@ -150,6 +249,11 @@ def generate_image(
     x = x.clamp(-1, 1)
     x = rearrange(x[0], "c h w -> h w c")
     img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
+
+    # Move transformer back to CPU to free VRAM for next generation
+    # (text_encoder already on CPU, ae stays on GPU as it's small)
+    model = model.cpu()
+    torch.cuda.empty_cache()
 
     # Save with metadata
     output_path = Path(output_path)
