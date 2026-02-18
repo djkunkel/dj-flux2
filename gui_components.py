@@ -19,10 +19,69 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QFileDialog,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize
 from PySide6.QtGui import QPixmap, QImage
 from PIL import Image
+
+
+IMAGE_FILE_FILTER = "Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;All Files (*)"
+
+
+def open_image_file_dialog(parent, title: str = "Select Image") -> str:
+    """Open a file dialog with a live image preview panel.
+
+    Uses a non-native QFileDialog so we can attach a preview widget to the
+    right side via setLayout on the dialog's existing layout. The preview
+    updates as the user navigates files.
+
+    Returns:
+        Selected file path, or empty string if cancelled.
+    """
+    dialog = QFileDialog(parent, title)
+    dialog.setFileMode(QFileDialog.ExistingFile)
+    dialog.setNameFilter(IMAGE_FILE_FILTER)
+    dialog.setOption(QFileDialog.DontUseNativeDialog, True)
+    dialog.resize(900, 550)
+
+    # Build a preview label and insert it to the right of the dialog layout
+    preview = QLabel("No preview")
+    preview.setAlignment(Qt.AlignCenter)
+    preview.setMinimumSize(QSize(220, 220))
+    preview.setMaximumSize(QSize(280, 280))
+    preview.setStyleSheet("border: 1px solid #ccc; background: #111; color: #888;")
+
+    layout = dialog.layout()
+    # QFileDialog uses a QGridLayout; add preview spanning all rows on the right
+    if layout is not None:
+        row_count = layout.rowCount()
+        layout.addWidget(preview, 0, layout.columnCount(), row_count, 1)
+
+    def update_preview(path: str):
+        if not path:
+            preview.setText("No preview")
+            preview.setPixmap(QPixmap())
+            return
+        px = QPixmap(path)
+        if px.isNull():
+            preview.setText("Cannot preview")
+            preview.setPixmap(QPixmap())
+            return
+        preview.setText("")
+        preview.setPixmap(
+            px.scaled(
+                preview.maximumSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+        )
+
+    dialog.currentChanged.connect(update_preview)
+
+    if dialog.exec() == QFileDialog.Accepted:
+        files = dialog.selectedFiles()
+        return files[0] if files else ""
+    return ""
 
 
 class ImagePreviewPanel(QWidget):

@@ -28,7 +28,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PIL import Image
 
 # Import UI components (from script directory)
-from gui_components import LeftConfigPanel, RightImagePanel
+from gui_components import LeftConfigPanel, RightImagePanel, open_image_file_dialog
 
 # Import existing generation functions
 from generate_image import generate_image, model_cache
@@ -222,13 +222,8 @@ class FluxGUI(QMainWindow):
         gc.collect()
 
     def _browse_input_image(self):
-        """Open file picker for input image"""
-        filepath, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Input Image",
-            "",
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;All Files (*)",
-        )
+        """Open file picker for input image with live preview"""
+        filepath = open_image_file_dialog(self, "Select Input Image")
 
         if filepath:
             self.state.input_image_path = filepath
