@@ -38,5 +38,5 @@ python-preference = "only-managed"
 
 [tool.setuptools]
 # Include the main scripts as modules
-py-modules = ["generate_image", "upscale_image", "download_models", "gui_generate"]
+py-modules = ["generate_image", "upscale_image", "download_models", "gui_generate", "gui_components"]
 packages = []

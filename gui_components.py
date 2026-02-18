@@ -78,7 +78,11 @@ class ImagePreviewPanel(QWidget):
             qimage = QImage(
                 data, img.width, img.height, img.width * 3, QImage.Format_RGB888
             )
-            self.original_pixmap = QPixmap.fromImage(qimage)
+            # .copy() forces Qt to take ownership of the pixel data so that
+            # `data` can be safely garbage-collected after this line.
+            # Without it, QImage holds a raw pointer to `data`'s buffer and
+            # accessing the QImage after `data` is collected is undefined behavior.
+            self.original_pixmap = QPixmap.fromImage(qimage.copy())
 
             # Close PIL Image to release memory immediately
             img.close()

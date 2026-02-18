@@ -72,7 +72,11 @@ class ModelCache:
             Dictionary with 'text_encoder', 'model', and 'ae' keys
         """
         # If already loaded with same model names, return cached
-        if self._models and self._model_name == model_name:
+        if (
+            self._models
+            and self._model_name == model_name
+            and self._ae_model_name == ae_model_name
+        ):
             print("Using cached models (fast path)")
             return self._models
 
@@ -177,6 +181,11 @@ def generate_image(
     print()
 
     # Clear CUDA cache
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA GPU not found. FLUX.2 Klein requires a CUDA-capable GPU.\n"
+            "Check your NVIDIA driver and CUDA installation."
+        )
     torch.cuda.empty_cache()
     device = torch.device("cuda")
 
@@ -211,11 +220,14 @@ def generate_image(
                 print(f"  Using input image dimensions: {width}x{height}")
             ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
-        # Move text encoder to CPU to free VRAM for transformer
+        # Move text encoder and ae to CPU to free VRAM for transformer
+        # ae is no longer needed until decode; freeing it gives the transformer
+        # the headroom it needs on cards with ~12 GB VRAM
         text_encoder = text_encoder.cpu()
+        ae = ae.cpu()
         torch.cuda.empty_cache()
 
-        # Move transformer model to GPU (now that text encoder is off GPU)
+        # Move transformer model to GPU (text encoder and ae are now off GPU)
         model = model.to(device)
 
         # Create noise
@@ -240,6 +252,12 @@ def generate_image(
             img_cond_seq_ids=ref_ids,
         )
 
+        # Move transformer back to CPU, bring ae back for decode
+        # Never have model + ae on GPU simultaneously
+        model = model.cpu()
+        ae = ae.to(device)
+        torch.cuda.empty_cache()
+
         # Decode
         x = torch.cat(scatter_ids(x, x_ids)).squeeze(2)
         x = ae.decode(x).float()
@@ -249,9 +267,8 @@ def generate_image(
     x = rearrange(x[0], "c h w -> h w c")
     img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
 
-    # Move transformer back to CPU to free VRAM for next generation
-    # This ensures we start each generation with minimal VRAM usage
-    model = model.cpu()
+    # ae stays on GPU (small, ~0.2 GB); VRAM is free for next generation's
+    # text_encoder phase. Explicit cache clear to release any intermediate tensors.
     torch.cuda.empty_cache()
 
     # Save with metadata

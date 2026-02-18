@@ -268,7 +268,11 @@ class FluxGUI(QMainWindow):
             self.state.worker.progress.disconnect()
             self.state.worker.finished.disconnect()
             self.state.worker.error.disconnect()
-            # Schedule for deletion
+            # Request stop and block until the thread actually finishes.
+            # This prevents concurrent GPU access from two generation threads,
+            # which can corrupt GPU state or cause OOM errors.
+            self.state.worker.quit()
+            self.state.worker.wait()
             self.state.worker.deleteLater()
             self.state.worker = None
 
@@ -396,25 +400,25 @@ class FluxGUI(QMainWindow):
         # Reset left panel
         self.left_panel.reset_to_defaults()
 
-        # Reset state
-        self.state.reset_images()
-
-        # Clear previews
-        self.right_panel.clear_previews()
-
-        # Clean up temp files
+        # Delete temp files BEFORE resetting state — reset_images() clears the
+        # path references, so file deletion must happen first or the files leak.
         if self.state.generated_image_path and os.path.exists(
             self.state.generated_image_path
         ):
             try:
                 os.remove(self.state.generated_image_path)
-            except:
+            except Exception:
                 pass
 
-        # Clean up previous temp file too
         if self.state.previous_temp_file:
             self.state.cleanup_temp_file()
             self.state.previous_temp_file = None
+
+        # Now safe to clear state (paths already used above)
+        self.state.reset_images()
+
+        # Clear previews
+        self.right_panel.clear_previews()
 
         # Unload models to free GPU/RAM memory
         if model_cache.is_loaded():
