@@ -3,12 +3,13 @@
 
 import argparse
 import gc
+import os
+import tempfile
 import torch
 from einops import rearrange
 from PIL import Image, ExifTags
 from pathlib import Path
 import sys
-import os
 
 # Add flux2/src to path (handle both local and installed as tool)
 script_dir = Path(__file__).parent.resolve()
@@ -129,11 +130,17 @@ class ModelCache:
             print("✓ Models unloaded, memory freed")
 
     def get_memory_estimate(self) -> str:
-        """Return approximate memory usage string"""
+        """Return approximate memory usage based on loaded model parameters"""
         if not self.is_loaded():
             return "0 MB"
-        # Rough estimates: text_encoder ~1.2GB, model ~2.8GB, ae ~0.2GB
-        return "~4.2 GB"
+        total_bytes = 0
+        for model in self._models.values():
+            if hasattr(model, "parameters"):
+                total_bytes += sum(
+                    p.nelement() * p.element_size() for p in model.parameters()
+                )
+        gb = total_bytes / (1024**3)
+        return f"~{gb:.1f} GB"
 
 
 # Global singleton instance
@@ -214,10 +221,6 @@ def generate_image(
         if input_image:
             print("  Encoding reference image...")
             img_ctx = [Image.open(input_image)]
-            # Optionally match dimensions from input image
-            if width is None or height is None:
-                width, height = img_ctx[0].size
-                print(f"  Using input image dimensions: {width}x{height}")
             ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
         # Move text encoder and ae to CPU to free VRAM for transformer
@@ -284,7 +287,7 @@ def generate_image(
         desc += f" | Input: {input_image}"
     exif_data[ExifTags.Base.ImageDescription] = desc
 
-    img.save(output_path, exif=exif_data, quality=95, subsampling=0)
+    img.save(output_path, exif=exif_data)
 
     print(f"\n✓ Image saved to: {output_path}")
     print(f"  Seed: {seed} (use this to reproduce)")
@@ -374,9 +377,6 @@ Examples:
 
     # If upscaling, generate to a temp file first, then upscale to final output
     if args.upscale:
-        import tempfile
-        import os
-
         # Create temp file for intermediate image
         temp_fd, temp_path = tempfile.mkstemp(suffix=".png", prefix="flux_temp_")
         os.close(temp_fd)  # Close file descriptor, we just need the path

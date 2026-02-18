@@ -120,12 +120,6 @@ class ImagePreviewPanel(QWidget):
         self.preview_label.clear()
         self.preview_label.setText(self.placeholder_text)
 
-    def set_placeholder(self, text: str):
-        """Update placeholder text"""
-        self.placeholder_text = text
-        if not self.preview_label.pixmap():
-            self.preview_label.setText(text)
-
 
 class LeftConfigPanel(QWidget):
     """Left configuration panel with all generation controls"""
@@ -226,6 +220,10 @@ class LeftConfigPanel(QWidget):
         self.steps_spin = QSpinBox()
         self.steps_spin.setRange(1, 50)
         self.steps_spin.setValue(4)
+        self.steps_spin.setToolTip(
+            "Recommended: 4 steps (Klein is a distilled model).\n"
+            "Values above 8 are slower with no quality benefit."
+        )
         params_layout.addWidget(self.steps_spin, 1, 1)
 
         # Guidance
@@ -445,11 +443,19 @@ class RightImagePanel(QWidget):
 
         self._current_mode = is_img2img
 
-        # Clear current layout
+        # Clear current layout, explicitly deleting any sub-layouts (e.g. the
+        # QHBoxLayout created for img2img mode) so they don't leak.
         while self.main_layout.count():
             item = self.main_layout.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
+            elif item.layout():
+                sub = item.layout()
+                while sub.count():
+                    sub_item = sub.takeAt(0)
+                    if sub_item.widget():
+                        sub_item.widget().setParent(None)
+                sub.deleteLater()
 
         if is_img2img:
             # Side-by-side layout for img2img

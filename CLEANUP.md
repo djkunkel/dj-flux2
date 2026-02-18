@@ -375,7 +375,7 @@ interrupt via Ctrl+C while inside the `_clear()` try block.
 
 ## Low Priority / Code Quality
 
-### 11. `download_models.py:30` — Dead import: `login` imported but never used
+### 11. ~~`download_models.py:30` — Dead import: `login` imported but never used~~ ✓ DONE
 
 **Before:**
 ```python
@@ -389,7 +389,7 @@ from huggingface_hub import hf_hub_download
 
 ---
 
-### 12. `generate_image.py:360-361` — Deferred imports should be at module top
+### 12. ~~`generate_image.py:360-361` — Deferred imports should be at module top~~ ✓ DONE
 
 **Problem:** `import tempfile` and a duplicate `import os` appear inside the `if args.upscale:`
 block in `main()`. Both are standard library modules with negligible import cost. Deferring them
@@ -417,7 +417,7 @@ import torch
 
 ---
 
-### 13. `pyproject.toml:26-27` — Duplicate entry points
+### 13. ~~`pyproject.toml:26-27` — Duplicate entry points~~ ✓ DONE
 
 **Problem:** Both `dj-flux2` and `dj-flux2-generate` map to `generate_image:main`. One of
 these provides no additional value and just clutters the installed scripts directory.
@@ -441,7 +441,7 @@ dj-flux2-gui = "gui_generate:main"
 
 ---
 
-### 14. `generate_image.py:127-132` — `get_memory_estimate()` returns a hardcoded string
+### 14. ~~`generate_image.py:127-132` — `get_memory_estimate()` returns a hardcoded string~~ ✓ DONE
 
 **Problem:** The method always returns `"~4.2 GB"` regardless of which models are actually
 loaded. It cannot detect if, for example, only the AE was loaded or if a different-sized model
@@ -465,7 +465,7 @@ def get_memory_estimate(self) -> str:
 
 ---
 
-### 15. `gui_components.py:119-123` — Dead method `set_placeholder()` with a Qt6-incompatible null check
+### 15. ~~`gui_components.py:119-123` — Dead method `set_placeholder()` with a Qt6-incompatible null check~~ ✓ DONE
 
 **Problem:** `set_placeholder()` is defined but never called anywhere in the codebase (confirmed
 by grepping all files). Additionally, its implementation uses `if not
@@ -487,7 +487,7 @@ def set_placeholder(self, text: str):
 
 ---
 
-### 16. `gui_components.py:444-448` — `QHBoxLayout` created in `set_mode()` is not explicitly deleted
+### 16. ~~`gui_components.py:444-448` — `QHBoxLayout` created in `set_mode()` is not explicitly deleted~~ ✓ DONE
 
 **Problem:** Each time `set_mode(True)` is called (switching to img2img), a new `QHBoxLayout`
 (`h_layout`) is created and added to `self.main_layout`. When `set_mode(False)` is later called,
@@ -516,7 +516,7 @@ while self.main_layout.count():
 
 ---
 
-### 17. `pyproject.toml:6` — `<3.15` Python upper bound will require unnecessary maintenance
+### 17. ~~`pyproject.toml:6` — `<3.15` Python upper bound will require unnecessary maintenance~~ ✓ DONE
 
 **Problem:** `requires-python = ">=3.10,<3.15"` means the package will refuse to install on
 Python 3.15 when it's released, even if there are no actual incompatibilities. None of the
@@ -535,7 +535,7 @@ requires-python = ">=3.10"
 
 ---
 
-### 18. `generate_image.py:209-211` — Dead code: `width`/`height` None-check is never reached
+### 18. ~~`generate_image.py:209-211` — Dead code: `width`/`height` None-check is never reached~~ ✓ DONE
 
 **Problem:** Lines 209-211 check `if width is None or height is None` and fall back to the
 input image's dimensions. But `width` and `height` have default values of `512` in the function
@@ -555,7 +555,7 @@ if width is None or height is None:
 
 ---
 
-### 19. `gui_components.py:222-224` — Steps spinbox max of 50 has no warning for the 4-step model
+### 19. ~~`gui_components.py:222-224` — Steps spinbox max of 50 has no warning for the 4-step model~~ ✓ DONE
 
 **Problem:** The FLUX.2 Klein 4B model is a distilled 4-step model. Setting steps above ~8
 produces slower results with no quality improvement (and can actually degrade quality). The
@@ -575,7 +575,7 @@ self.steps_spin.setToolTip(
 
 ---
 
-### 20. `generate_image.py:270` — JPEG-specific kwargs passed to PNG save
+### 20. ~~`generate_image.py:270` — JPEG-specific kwargs passed to PNG save~~ ✓ DONE
 
 **Problem:** `img.save(output_path, exif=exif_data, quality=95, subsampling=0)` passes
 `quality=95` and `subsampling=0`, which are JPEG-specific parameters. For PNG output (the
