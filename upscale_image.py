@@ -5,6 +5,10 @@ import argparse
 from pathlib import Path
 from PIL import Image
 
+# Module-level cache: maps (scale, model_path) -> loaded spandrel model.
+# Avoids reloading the 64 MB .pth file from disk on every generation call.
+_realesrgan_model_cache: dict = {}
+
 
 def upscale_image(
     input_path: str,
@@ -69,19 +73,20 @@ def _upscale_realesrgan(input_path: str, output_path: str, scale: int) -> str:
     Real-ESRGAN is an AI-based upscaling method that produces superior results
     for recovering fine details and textures compared to traditional methods.
     """
-    import sys
     import torch
     import numpy as np
     from spandrel import ModelLoader, ImageModelDescriptor
-    import os
 
     print(f"Upscaling {scale}x using Real-ESRGAN (AI)...")
 
     # Check CUDA availability
     if not torch.cuda.is_available():
-        print("Error: Real-ESRGAN requires CUDA GPU")
-        print("Use --method lanczos for CPU upscaling")
-        sys.exit(1)
+        raise RuntimeError(
+            "Real-ESRGAN requires a CUDA GPU. Use method='lanczos' for CPU upscaling."
+        )
+
+    if scale not in [2, 4]:
+        raise ValueError(f"Real-ESRGAN only supports 2x and 4x upscaling, got: {scale}")
 
     # Model paths (download via download_models.py --upscale-models)
     # Use absolute path based on script location
@@ -91,24 +96,30 @@ def _upscale_realesrgan(input_path: str, output_path: str, scale: int) -> str:
     model_path = model_dir / model_filename
 
     if not model_path.exists():
-        print(f"Error: Model not found: {model_path}")
-        print("\nPlease download the Real-ESRGAN models first:")
-        print("  uv run download_models.py --upscale-models")
-        sys.exit(1)
-
-    if scale not in [2, 4]:
-        print(f"Error: Real-ESRGAN only supports 2x and 4x upscaling")
-        sys.exit(1)
+        raise RuntimeError(
+            f"Real-ESRGAN model not found: {model_path}\n"
+            "Download it first: uv run download_models.py --upscale-models"
+        )
 
     # Load image
     img = Image.open(input_path).convert("RGB")
     original_size = img.size
 
-    # Load model
-    print(f"Loading Real-ESRGAN {scale}x model from {model_path}...")
-    model = ModelLoader().load_from_file(str(model_path))
-    assert isinstance(model, ImageModelDescriptor)
-    model.cuda().eval()
+    # Load model (cached after first call to avoid re-reading 64 MB from disk)
+    cache_key = (scale, str(model_path))
+    if cache_key not in _realesrgan_model_cache:
+        print(f"Loading Real-ESRGAN {scale}x model from {model_path}...")
+        model = ModelLoader().load_from_file(str(model_path))
+        if not isinstance(model, ImageModelDescriptor):
+            raise RuntimeError(
+                f"Loaded model is not an image model: {model_path}\n"
+                "Make sure the .pth file is a Real-ESRGAN image model."
+            )
+        model.cuda().eval()
+        _realesrgan_model_cache[cache_key] = model
+    else:
+        print(f"Using cached Real-ESRGAN {scale}x model")
+    model = _realesrgan_model_cache[cache_key]
 
     # Convert image to tensor [1, 3, H, W] in range [0, 1]
     img_np = np.array(img).astype(np.float32) / 255.0

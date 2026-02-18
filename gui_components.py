@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QScrollArea,
     QSizePolicy,
+    QSplitter,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QImage
@@ -66,6 +67,11 @@ class ImagePreviewPanel(QWidget):
     def display_image(self, image_path: str):
         """Load and display image in preview (scaled to fit available space)"""
         try:
+            # Release old pixmap before loading new one (prevent memory leak)
+            if self.original_pixmap is not None:
+                self.preview_label.clear()
+                self.original_pixmap = None
+
             # Load image and convert to QPixmap
             img = Image.open(image_path)
             img = img.convert("RGB")
@@ -73,7 +79,14 @@ class ImagePreviewPanel(QWidget):
             qimage = QImage(
                 data, img.width, img.height, img.width * 3, QImage.Format_RGB888
             )
-            self.original_pixmap = QPixmap.fromImage(qimage)
+            # .copy() forces Qt to take ownership of the pixel data so that
+            # `data` can be safely garbage-collected after this line.
+            # Without it, QImage holds a raw pointer to `data`'s buffer and
+            # accessing the QImage after `data` is collected is undefined behavior.
+            self.original_pixmap = QPixmap.fromImage(qimage.copy())
+
+            # Close PIL Image to release memory immediately
+            img.close()
 
             # Scale to current label size
             self._update_scaled_pixmap()
@@ -107,12 +120,6 @@ class ImagePreviewPanel(QWidget):
         self.original_pixmap = None
         self.preview_label.clear()
         self.preview_label.setText(self.placeholder_text)
-
-    def set_placeholder(self, text: str):
-        """Update placeholder text"""
-        self.placeholder_text = text
-        if not self.preview_label.pixmap():
-            self.preview_label.setText(text)
 
 
 class LeftConfigPanel(QWidget):
@@ -214,6 +221,10 @@ class LeftConfigPanel(QWidget):
         self.steps_spin = QSpinBox()
         self.steps_spin.setRange(1, 50)
         self.steps_spin.setValue(4)
+        self.steps_spin.setToolTip(
+            "Recommended: 4 steps (Klein is a distilled model).\n"
+            "Values above 8 are slower with no quality benefit."
+        )
         params_layout.addWidget(self.steps_spin, 1, 1)
 
         # Guidance
@@ -304,6 +315,20 @@ class LeftConfigPanel(QWidget):
         button_layout.addWidget(self.clear_btn)
         layout.addLayout(button_layout)
 
+        # Model status and control
+        model_control_layout = QHBoxLayout()
+
+        self.model_status_label = QLabel("Models: Not loaded")
+        self.model_status_label.setStyleSheet("color: gray; font-size: 10px;")
+
+        self.unload_models_btn = QPushButton("Unload Models")
+        self.unload_models_btn.setEnabled(False)
+        self.unload_models_btn.setToolTip("Free GPU/RAM by unloading models")
+
+        model_control_layout.addWidget(self.model_status_label)
+        model_control_layout.addWidget(self.unload_models_btn)
+        layout.addLayout(model_control_layout)
+
         layout.addStretch()
 
         # Set scroll content
@@ -368,6 +393,24 @@ class LeftConfigPanel(QWidget):
         """Set seed value in combo box"""
         self.seed_combo.setCurrentText(str(seed))
 
+    def update_model_status(self, is_loaded: bool, memory_str: str = ""):
+        """Update model status indicator
+
+        Args:
+            is_loaded: Whether models are currently loaded in memory
+            memory_str: Memory usage string (e.g., "~4.2 GB")
+        """
+        if is_loaded:
+            self.model_status_label.setText(f"Models: Loaded ({memory_str})")
+            self.model_status_label.setStyleSheet(
+                "color: green; font-size: 10px; font-weight: bold;"
+            )
+            self.unload_models_btn.setEnabled(True)
+        else:
+            self.model_status_label.setText("Models: Not loaded")
+            self.model_status_label.setStyleSheet("color: gray; font-size: 10px;")
+            self.unload_models_btn.setEnabled(False)
+
 
 class RightImagePanel(QWidget):
     """Right panel for image previews - switches layout based on mode"""
@@ -401,18 +444,29 @@ class RightImagePanel(QWidget):
 
         self._current_mode = is_img2img
 
-        # Clear current layout
+        # Clear current layout, explicitly deleting any sub-layouts (e.g. the
+        # QHBoxLayout created for img2img mode) so they don't leak.
         while self.main_layout.count():
             item = self.main_layout.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
+            elif item.layout():
+                sub = item.layout()
+                while sub.count():
+                    sub_item = sub.takeAt(0)
+                    if sub_item.widget():
+                        sub_item.widget().setParent(None)
+                sub.deleteLater()
 
         if is_img2img:
-            # Side-by-side layout for img2img
-            h_layout = QHBoxLayout()
-            h_layout.addWidget(self.input_preview)
-            h_layout.addWidget(self.output_preview)
-            self.main_layout.addLayout(h_layout)
+            # Side-by-side splitter for img2img — always divides space equally
+            # and allows the user to drag the divider if desired
+            splitter = QSplitter(Qt.Horizontal)
+            splitter.addWidget(self.input_preview)
+            splitter.addWidget(self.output_preview)
+            splitter.setStretchFactor(0, 1)
+            splitter.setStretchFactor(1, 1)
+            self.main_layout.addWidget(splitter)
 
             # Show input preview
             self.input_preview.setVisible(True)

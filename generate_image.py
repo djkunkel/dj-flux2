@@ -2,12 +2,14 @@
 """Simple image generation script for FLUX.2 Klein 4B with CUDA support"""
 
 import argparse
+import gc
+import os
+import tempfile
 import torch
 from einops import rearrange
 from PIL import Image, ExifTags
 from pathlib import Path
 import sys
-import os
 
 # Add flux2/src to path (handle both local and installed as tool)
 script_dir = Path(__file__).parent.resolve()
@@ -36,6 +38,113 @@ DEFAULT_GUIDANCE = MODEL_INFO["defaults"]["guidance"]  # 1.0
 # Note: All FLUX models share the flux.2-dev autoencoder
 # Klein models don't have ae.safetensors in their repos - this is expected per BFL's design
 AE_MODEL_NAME = "flux.2-dev"
+
+
+class ModelCache:
+    """Singleton cache for FLUX models - load once, reuse many times
+
+    This dramatically speeds up subsequent generations by keeping models
+    in GPU/RAM memory instead of reloading from disk each time.
+    """
+
+    _instance = None
+    _models = None
+    _model_name = None
+    _ae_model_name = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def is_loaded(self) -> bool:
+        """Check if models are currently loaded"""
+        return self._models is not None
+
+    def load_models(self, model_name: str, ae_model_name: str, device):
+        """Load models if not cached, return cached models
+
+        Args:
+            model_name: Name of the main FLUX model
+            ae_model_name: Name of the autoencoder model
+            device: Target device (typically 'cuda')
+
+        Returns:
+            Dictionary with 'text_encoder', 'model', and 'ae' keys
+        """
+        # If already loaded with same model names, return cached
+        if (
+            self._models
+            and self._model_name == model_name
+            and self._ae_model_name == ae_model_name
+        ):
+            print("Using cached models (fast path)")
+            return self._models
+
+        # Different model or first load
+        if self._models:
+            print("Clearing old models...")
+            self.clear()
+
+        print("[1/3] Loading text encoder...")
+        text_encoder = load_text_encoder(model_name, device=device)
+
+        print("[2/3] Loading transformer...")
+        model = load_flow_model(model_name, device="cpu")
+
+        print("[3/3] Loading autoencoder...")
+        ae = load_ae(ae_model_name, device=device)
+
+        ae.eval()
+        text_encoder.eval()
+
+        self._models = {
+            "text_encoder": text_encoder,
+            "model": model,
+            "ae": ae,
+        }
+        self._model_name = model_name
+        self._ae_model_name = ae_model_name
+
+        print("✓ Models loaded and cached")
+        return self._models
+
+    def clear(self):
+        """Unload models and free GPU/RAM"""
+        if self._models:
+            # Move to CPU first to free VRAM
+            for name, model in self._models.items():
+                if hasattr(model, "cpu"):
+                    model.cpu()
+
+            # Delete references
+            del self._models
+            self._models = None
+            self._model_name = None
+            self._ae_model_name = None
+
+            # Force cleanup
+            torch.cuda.empty_cache()
+            gc.collect()
+
+            print("✓ Models unloaded, memory freed")
+
+    def get_memory_estimate(self) -> str:
+        """Return approximate memory usage based on loaded model parameters"""
+        if not self.is_loaded():
+            return "0 MB"
+        total_bytes = 0
+        for model in self._models.values():
+            if hasattr(model, "parameters"):
+                total_bytes += sum(
+                    p.nelement() * p.element_size() for p in model.parameters()
+                )
+        gb = total_bytes / (1024**3)
+        return f"~{gb:.1f} GB"
+
+
+# Global singleton instance
+model_cache = ModelCache()
 
 
 def generate_image(
@@ -79,21 +188,26 @@ def generate_image(
     print()
 
     # Clear CUDA cache
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA GPU not found. FLUX.2 Klein requires a CUDA-capable GPU.\n"
+            "Check your NVIDIA driver and CUDA installation."
+        )
     torch.cuda.empty_cache()
     device = torch.device("cuda")
 
-    # Load models
-    print("[1/3] Loading text encoder...")
-    text_encoder = load_text_encoder(model_name, device=device)
+    # Load models (cached if available for fast subsequent generations)
+    models = model_cache.load_models(model_name, AE_MODEL_NAME, device)
+    text_encoder = models["text_encoder"]
+    model = models["model"]
+    ae = models["ae"]
 
-    print("[2/3] Loading transformer...")
-    model = load_flow_model(model_name, device="cpu")
-
-    print("[3/3] Loading autoencoder...")
-    ae = load_ae(AE_MODEL_NAME, device=device)  # Shared across all FLUX models
-
-    ae.eval()
-    text_encoder.eval()
+    # VRAM management: Move models to optimal devices for this generation
+    # Strategy: Never have all 3 models on GPU simultaneously to avoid OOM
+    text_encoder = text_encoder.to(device)
+    ae = ae.to(device)
+    model = model.cpu()  # Keep on CPU until after text encoding
+    torch.cuda.empty_cache()
 
     print(f"\nGenerating {mode.lower()}...")
     with torch.no_grad():
@@ -107,17 +221,16 @@ def generate_image(
         if input_image:
             print("  Encoding reference image...")
             img_ctx = [Image.open(input_image)]
-            # Optionally match dimensions from input image
-            if width is None or height is None:
-                width, height = img_ctx[0].size
-                print(f"  Using input image dimensions: {width}x{height}")
             ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
-        # Move text encoder to CPU to free VRAM
+        # Move text encoder and ae to CPU to free VRAM for transformer
+        # ae is no longer needed until decode; freeing it gives the transformer
+        # the headroom it needs on cards with ~12 GB VRAM
         text_encoder = text_encoder.cpu()
+        ae = ae.cpu()
         torch.cuda.empty_cache()
 
-        # Move model to GPU
+        # Move transformer model to GPU (text encoder and ae are now off GPU)
         model = model.to(device)
 
         # Create noise
@@ -142,6 +255,12 @@ def generate_image(
             img_cond_seq_ids=ref_ids,
         )
 
+        # Move transformer back to CPU, bring ae back for decode
+        # Never have model + ae on GPU simultaneously
+        model = model.cpu()
+        ae = ae.to(device)
+        torch.cuda.empty_cache()
+
         # Decode
         x = torch.cat(scatter_ids(x, x_ids)).squeeze(2)
         x = ae.decode(x).float()
@@ -150,6 +269,10 @@ def generate_image(
     x = x.clamp(-1, 1)
     x = rearrange(x[0], "c h w -> h w c")
     img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
+
+    # ae stays on GPU (small, ~0.2 GB); VRAM is free for next generation's
+    # text_encoder phase. Explicit cache clear to release any intermediate tensors.
+    torch.cuda.empty_cache()
 
     # Save with metadata
     output_path = Path(output_path)
@@ -164,7 +287,7 @@ def generate_image(
         desc += f" | Input: {input_image}"
     exif_data[ExifTags.Base.ImageDescription] = desc
 
-    img.save(output_path, exif=exif_data, quality=95, subsampling=0)
+    img.save(output_path, exif=exif_data)
 
     print(f"\n✓ Image saved to: {output_path}")
     print(f"  Seed: {seed} (use this to reproduce)")
@@ -254,9 +377,6 @@ Examples:
 
     # If upscaling, generate to a temp file first, then upscale to final output
     if args.upscale:
-        import tempfile
-        import os
-
         # Create temp file for intermediate image
         temp_fd, temp_path = tempfile.mkstemp(suffix=".png", prefix="flux_temp_")
         os.close(temp_fd)  # Close file descriptor, we just need the path
