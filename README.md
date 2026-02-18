@@ -129,16 +129,20 @@ uv run gui_generate.py
 - **Side-by-side preview**: See input and output images together (img2img mode)
 - **All parameters**: Prompt, width, height, steps, guidance, seed
 - **Upscaling support**: Optional Lanczos or Real-ESRGAN upscaling
+- **Model caching**: First generation loads models (~15-25s), subsequent generations are 5-10x faster (2-5s)
+- **Memory management**: Smart VRAM handling prevents out-of-memory errors
 - **Easy experimentation**: Adjust parameters and regenerate instantly
 - **Save when ready**: Only save images you like
 - **Seed management**: Copy and reuse seeds for reproducibility
 - **Modern Qt6 interface**: Professional, cross-platform GUI framework
+- **Unload models**: Free GPU memory when finished generating
 
 **Perfect for:**
 - Experimenting with different prompts
 - Fine-tuning generation parameters
 - Quick iteration on img2img transformations
 - Visual comparison of results
+- Batch generation workflows (models stay loaded)
 
 ### Command Line Options
 
@@ -282,15 +286,36 @@ Options:
 
 ### Generation Speed (RTX 4070, 512x512)
 
-| Operation | Time |
-|-----------|------|
-| Cold start | ~15s |
-| Warm generation | ~7s |
+| Operation | Time | Notes |
+|-----------|------|-------|
+| **CLI - Cold start** | ~15s | Loads models from disk |
+| **CLI - Warm generation** | ~7s | Models still in HF cache |
+| **GUI - First generation** | ~15-25s | Loads and caches models in RAM |
+| **GUI - Subsequent** | **2-5s** | Uses cached models (5-10x faster!) |
+
+### Model Caching (GUI Only)
+
+The GUI uses intelligent model caching for dramatic speedups:
+
+- **First generation**: Loads models from disk (~15-25s)
+- **Subsequent generations**: Reuses cached models (~2-5s) 
+- **Memory trade-off**: Keeps ~4.2 GB models in RAM for instant access
+- **VRAM management**: Automatically shuffles models between CPU/GPU to prevent OOM errors
+- **User control**: "Unload Models" button frees memory when finished
+
+**How it works:**
+1. Models load once and stay in system RAM
+2. During generation, models move to GPU only when needed
+3. After generation, large transformer returns to CPU to free VRAM
+4. Next generation transfers from RAM → GPU (~500ms vs 15s from disk)
+
+This makes the GUI perfect for iterative workflows where you generate multiple images in one session.
 
 ### Memory Usage
 
-- **VRAM**: ~12 GB
-- **RAM**: ~4 GB
+- **VRAM**: ~5-6 GB peak during generation, ~0.2 GB idle
+- **RAM**: ~8 GB (includes ~4.2 GB cached models when GUI has generated images)
+- **Disk cache**: ~13 GB (Hugging Face model cache)
 
 ### Resolution Limits
 

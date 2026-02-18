@@ -187,8 +187,7 @@ def generate_image(
     ae = models["ae"]
 
     # VRAM management: Move models to optimal devices for this generation
-    # Strategy: Only keep what we need on GPU at each stage to avoid OOM
-    # Start with text encoder and ae on GPU, model on CPU
+    # Strategy: Never have all 3 models on GPU simultaneously to avoid OOM
     text_encoder = text_encoder.to(device)
     ae = ae.to(device)
     model = model.cpu()  # Keep on CPU until after text encoding
@@ -251,7 +250,7 @@ def generate_image(
     img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
 
     # Move transformer back to CPU to free VRAM for next generation
-    # (text_encoder already on CPU, ae stays on GPU as it's small)
+    # This ensures we start each generation with minimal VRAM usage
     model = model.cpu()
     torch.cuda.empty_cache()
 
