@@ -63,7 +63,7 @@ uv run generate_image.py "test image" -o test.png -S 42
 uv run generate_image.py "pencil sketch" -i test.png -o sketch.png
 
 # Verify imports work
-uv run python -c "import sys; sys.path.insert(0, 'flux2/src'); from flux2.util import load_flow_model; print('✓ OK')"
+uv run python -c "from flux2.util import load_flow_model; print('✓ OK')"
 ```
 
 ### Linting/Formatting
@@ -97,7 +97,8 @@ uv run generate_image.py "test" --upscale 2 --upscale-method realesrgan
 # 2. Module docstring
 """Brief description of what this module does"""
 
-# 3. Standard library imports
+# 3. Standard library imports (alphabetical)
+import os
 import sys
 from pathlib import Path
 
@@ -106,8 +107,8 @@ import torch
 from einops import rearrange
 from PIL import Image
 
-# 5. flux2 submodule imports (after sys.path.insert)
-sys.path.insert(0, "flux2/src")
+# 5. flux2 submodule imports
+# (sys.path.insert is done at module top in scripts that need it)
 from flux2.util import load_flow_model
 from flux2.sampling import denoise
 ```
@@ -160,12 +161,13 @@ if seed is None:
 ### File Organization
 ```
 Project root only:
-├── gui_generate.py      # GUI main logic (~362 lines, uses PySide6/Qt6)
-├── gui_components.py    # GUI UI components (~407 lines, UI layout separated)
-├── generate_image.py    # Main script (keep under 300 lines)
-├── upscale_image.py     # Upscaling script
+├── gui_generate.py      # GUI main logic (uses PySide6/Qt6)
+├── gui_components.py    # GUI UI components (UI layout separated from logic)
+├── generate_image.py    # Main inference script
+├── upscale_image.py     # Upscaling script (Lanczos + Real-ESRGAN)
 ├── download_models.py   # Model downloader (keep focused)
-├── pyproject.toml       # Dependencies only (minimal)
+├── pyrightconfig.json   # IDE/LSP config pointing at flux2/src
+├── pyproject.toml       # Dependencies and entry points
 └── *.md                 # Documentation
 
 Do NOT add:
@@ -188,7 +190,8 @@ from gui_generate.py business logic for easier UI tweaking.
 
 ### 2. Submodule Respect
 - NEVER modify files in `flux2/` directory (it's a git submodule)
-- Always import from flux2 after `sys.path.insert(0, "flux2/src")`
+- `pyrightconfig.json` points the LSP at `flux2/src` — do not remove it
+- Scripts insert `flux2/src` into `sys.path` at the top for runtime resolution
 - Document any BFL API usage in comments
 
 ### 3. Documentation First
@@ -201,8 +204,9 @@ from gui_generate.py business logic for easier UI tweaking.
 - Models are downloaded via `download_models.py --upscale-only`
 - Stored in `models/realesrgan/` directory (not in HF cache)
 - Use Spandrel's `ModelLoader().load_from_file()` to load models
+- Models are cached in memory after first load (`_realesrgan_model_cache` in `upscale_image.py`)
 - Default to Lanczos unless user explicitly requests Real-ESRGAN
-- Real-ESRGAN requires CUDA (exit gracefully if not available)
+- Real-ESRGAN requires CUDA (raises `RuntimeError` if not available — do NOT `sys.exit()` from library functions)
 - Test both methods when modifying upscale code
 - Model files: `RealESRGAN_x2plus.pth` (64 MB), `RealESRGAN_x4plus.pth` (64 MB)
 
@@ -263,9 +267,8 @@ class ImageMetadataManager:
 
 ## Resources
 
-- **Main Docs**: README.md (user guide), MODS-README.md (technical)
+- **Main Docs**: README.md (user guide)
 - **Quick Start**: QUICK-START.md (rapid onboarding)
-- **Dependencies**: DEPENDENCIES.md (package management)
 - **BFL Source**: flux2/src/flux2/ (reference only, do not modify)
 
 ---

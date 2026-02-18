@@ -15,8 +15,8 @@ Minimal FLUX.2 Klein 4B image generation with CUDA support. Fast, simple, and ed
 
 ## Requirements
 
-- Python 3.10-3.14 (3.12+ recommended)
-- NVIDIA GPU with 12+ GB VRAM (RTX 3090/4070 or better)
+- Python 3.10+ (3.12+ recommended)
+- NVIDIA GPU with 8+ GB VRAM (RTX 3080/4070 or better; 12 GB recommended for 1024x1024)
 - CUDA 12.x
 - ~13 GB disk space for models
 
@@ -26,11 +26,8 @@ Minimal FLUX.2 Klein 4B image generation with CUDA support. Fast, simple, and ed
 
 **Option 1: Install as a global tool (Recommended for all users):**
 ```bash
-git clone https://github.com/yourusername/dj-flux2.git
+git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
-git submodule update --init --recursive
-
-# Install as a global tool (editable mode to access flux2 submodule)
 uv tool install --editable .
 
 # All commands become available globally:
@@ -39,13 +36,11 @@ dj-flux2-gui              # Launch GUI
 dj-flux2-upscale -i input.png -o output.png
 dj-flux2-download
 ```
-**Note:** Use `--editable` flag so tools can access the flux2 git submodule.
 
 **Option 2: Local development setup:**
 ```bash
-git clone https://github.com/yourusername/dj-flux2.git
+git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
-git submodule update --init --recursive
 
 # Using uv (recommended)
 uv venv
@@ -122,7 +117,7 @@ uv run gui_generate.py
 # Or: python gui_generate.py (with activated venv)
 ```
 
-**Note:** If using the global `dj-flux2-gui` command, make sure you installed with `uv tool install --editable .` so it can access the flux2 submodule.
+**Note:** Install with `uv tool install --editable .` (editable mode) so the tool can access the `flux2/` submodule at runtime.
 
 **The GUI provides:**
 - **Two modes**: Text-to-Image and Image-to-Image
@@ -180,7 +175,7 @@ python upscale_image.py -i input.png -o output.png
 - ✅ Traditional Python workflow
 - ✅ Works with any tool (not just uv)
 
-> **Note:** When using Option 1, install with `uv tool install --editable .` to ensure the flux2 submodule is accessible.
+> **Note:** Always install with `uv tool install --editable .` (not plain `uv tool install .`) so the flux2 submodule is accessible at runtime.
 
 ### Text-to-Image
 
@@ -299,7 +294,7 @@ The GUI uses intelligent model caching for dramatic speedups:
 
 - **First generation**: Loads models from disk (~15-25s)
 - **Subsequent generations**: Reuses cached models (~2-5s) 
-- **Memory trade-off**: Keeps ~4.2 GB models in RAM for instant access
+  - **Memory trade-off**: Keeps ~4 GB of models in RAM for instant access
 - **VRAM management**: Automatically shuffles models between CPU/GPU to prevent OOM errors
 - **User control**: "Unload Models" button frees memory when finished
 
@@ -313,8 +308,8 @@ This makes the GUI perfect for iterative workflows where you generate multiple i
 
 ### Memory Usage
 
-- **VRAM**: ~5-6 GB peak during generation, ~0.2 GB idle
-- **RAM**: ~8 GB (includes ~4.2 GB cached models when GUI has generated images)
+- **VRAM**: ~4-5 GB peak during generation (models are shuffled on/off GPU in stages), ~0.2 GB idle
+- **RAM**: ~8 GB (includes ~4 GB cached models when GUI has generated images)
 - **Disk cache**: ~13 GB (Hugging Face model cache)
 
 ### Resolution Limits
@@ -323,8 +318,8 @@ This makes the GUI perfect for iterative workflows where you generate multiple i
 - **Minimum**: 64x64
 - **Default**: 512x512
 - **Maximum**: Limited by GPU VRAM
-  - 12GB VRAM: 512x512 recommended
-  - 16GB VRAM: Up to 1024x1024
+  - 12GB VRAM: Up to 1024x1024
+  - 16GB VRAM: Up to 1280x1280
   - 24GB+ VRAM: Up to 1792x1792 (model maximum)
 
 **With upscaling:**
@@ -348,16 +343,16 @@ Text Prompt → Qwen3-4B → FLUX.2 Klein 4B → VAE Decoder → Image
             (4.9 GB)       (7.4 GB)
 ```
 
-See [MODS-README.md](MODS-README.md) for detailed technical documentation.
+The VRAM choreography keeps at most one large model on GPU at a time: the text encoder and autoencoder are swapped to CPU during the transformer's denoising pass, then the transformer returns to CPU before the autoencoder decodes the result.
 
 ## Troubleshooting
 
 ### Out of Memory
 
-If native generation causes OOM errors, use upscaling instead:
+If native generation causes OOM errors at large resolutions, use upscaling instead:
 
 ```bash
-# Instead of: -W 1024 -H 1024 (may cause OOM on 12GB VRAM)
+# Instead of a very large native resolution:
 # Use: --upscale 2 (generates 512x512, upscales to 1024x1024)
 uv run generate_image.py "prompt" --upscale 2
 ```
@@ -383,7 +378,6 @@ print(torch.cuda.is_available())
 
 ## Learning Resources
 
-- **MODS-README.md**: Detailed technical documentation
 - **Black Forest Labs**: https://github.com/black-forest-labs/flux2
 - **FLUX.2 Blog**: https://bfl.ai/blog/flux2-klein
 
@@ -391,20 +385,24 @@ print(torch.cuda.is_available())
 
 ```
 dj-flux2/
-├── generate_image.py      # Main inference script
+├── generate_image.py      # Main inference script + ModelCache
+├── gui_generate.py        # GUI application logic (PySide6/Qt6)
+├── gui_components.py      # GUI widget layout
+├── upscale_image.py       # Lanczos and Real-ESRGAN upscaling
 ├── download_models.py     # Model download automation
-├── flux2/                 # BFL submodule (git)
-│   └── src/flux2/        # Core FLUX.2 code
-├── pyproject.toml        # Dependencies
-├── uv.lock               # Locked dependency versions
-└── README.md             # This file
+├── flux2/                 # BFL submodule (git, do not modify)
+│   └── src/flux2/         # Core FLUX.2 architecture code
+├── pyrightconfig.json     # IDE/LSP config (resolves flux2 imports)
+├── pyproject.toml         # Dependencies and entry points
+├── uv.lock                # Locked dependency versions
+└── README.md              # This file
 ```
 
 ## Why This Project?
 
 This is a **minimal, educational** implementation of FLUX.2 Klein:
 
-✅ **Minimal**: ~200 lines of code (+ modern Qt6 GUI!)  
+✅ **Minimal**: Small codebase (+ modern Qt6 GUI!)  
 ✅ **Fast**: 4-step generation  
 ✅ **Clear**: Easy to understand  
 ✅ **Complete**: Text-to-image + image-to-image + interactive GUI  

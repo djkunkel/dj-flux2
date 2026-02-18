@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QScrollArea,
     QSizePolicy,
+    QSplitter,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QImage
@@ -458,11 +459,14 @@ class RightImagePanel(QWidget):
                 sub.deleteLater()
 
         if is_img2img:
-            # Side-by-side layout for img2img
-            h_layout = QHBoxLayout()
-            h_layout.addWidget(self.input_preview)
-            h_layout.addWidget(self.output_preview)
-            self.main_layout.addLayout(h_layout)
+            # Side-by-side splitter for img2img — always divides space equally
+            # and allows the user to drag the divider if desired
+            splitter = QSplitter(Qt.Horizontal)
+            splitter.addWidget(self.input_preview)
+            splitter.addWidget(self.output_preview)
+            splitter.setStretchFactor(0, 1)
+            splitter.setStretchFactor(1, 1)
+            self.main_layout.addWidget(splitter)
 
             # Show input preview
             self.input_preview.setVisible(True)
