@@ -1,5 +1,6 @@
 """UI components for FLUX.2 Klein GUI - separate UI layout from business logic"""
 
+import enum
 from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget,
@@ -21,8 +22,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QFileDialog,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtCore import QSize
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QPixmap, QImage
 from PIL import Image
 
@@ -106,29 +106,27 @@ class ImagePreviewPanel(QWidget):
         title_label = QLabel(title)
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        title_label.setFixedHeight(20)  # Small fixed height
+        title_label.setFixedHeight(20)
 
         # Preview label - expands to fill space
-        self.preview_label = QLabel(self.placeholder_text)
-        self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setMinimumSize(self.min_size, self.min_size)
-        self.preview_label.setStyleSheet(
+        self._preview_label = QLabel(self.placeholder_text)
+        self._preview_label.setAlignment(Qt.AlignCenter)
+        self._preview_label.setMinimumSize(self.min_size, self.min_size)
+        self._preview_label.setStyleSheet(
             "border: 1px solid #ccc; background: #000000; color: #888888;"
         )
-        self.preview_label.setScaledContents(False)
-
-        # Make preview expand to fill available space
-        self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._preview_label.setScaledContents(False)
+        self._preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         layout.addWidget(title_label)
-        layout.addWidget(self.preview_label, 1)  # Stretch factor of 1
+        layout.addWidget(self._preview_label, 1)  # Stretch factor of 1
 
     def display_image(self, image_path: str):
         """Load and display image in preview (scaled to fit available space)"""
         try:
             # Release old pixmap before loading new one (prevent memory leak)
             if self.original_pixmap is not None:
-                self.preview_label.clear()
+                self._preview_label.clear()
                 self.original_pixmap = None
 
             # Load image and convert to QPixmap
@@ -149,25 +147,21 @@ class ImagePreviewPanel(QWidget):
 
             # Scale to current label size
             self._update_scaled_pixmap()
-            self.preview_label.setText("")
+            self._preview_label.setText("")
 
         except Exception as e:
-            self.preview_label.setText(f"Error loading image:\n{str(e)}")
+            self._preview_label.setText(f"Error loading image:\n{str(e)}")
 
     def _update_scaled_pixmap(self):
         """Scale the pixmap to fit the current label size"""
         if self.original_pixmap is None:
             return
 
-        # Get available size (considering minimum size)
-        label_size = self.preview_label.size()
-
-        # Scale pixmap to fit while maintaining aspect ratio
+        label_size = self._preview_label.size()
         scaled_pixmap = self.original_pixmap.scaled(
             label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
-
-        self.preview_label.setPixmap(scaled_pixmap)
+        self._preview_label.setPixmap(scaled_pixmap)
 
     def resizeEvent(self, event):
         """Handle resize to scale image dynamically"""
@@ -177,25 +171,71 @@ class ImagePreviewPanel(QWidget):
     def clear(self):
         """Clear preview and show placeholder"""
         self.original_pixmap = None
-        self.preview_label.clear()
-        self.preview_label.setText(self.placeholder_text)
+        self._preview_label.clear()
+        self._preview_label.setText(self.placeholder_text)
+
+
+class StatusState(enum.Enum):
+    """States for the generation status indicator"""
+
+    READY = "ready"
+    RUNNING = "running"
+    SUCCESS = "success"
+    ERROR = "error"
+
+
+# CSS styles keyed by StatusState
+_STATUS_STYLES: dict[StatusState, str] = {
+    StatusState.READY: "color: green; font-weight: bold;",
+    StatusState.RUNNING: "color: orange; font-weight: bold;",
+    StatusState.SUCCESS: "color: green; font-weight: bold;",
+    StatusState.ERROR: "color: red; font-weight: bold;",
+}
 
 
 class LeftConfigPanel(QWidget):
-    """Left configuration panel with all generation controls"""
+    """Left configuration panel with all generation controls.
+
+    Communicates with the parent window exclusively via Qt signals.
+    Internal widget attributes are private (_prefixed); callers use the
+    public methods below.
+
+    Each generation mode (txt2img / img2img) keeps its own prompt text.
+    Switching modes saves the current prompt and restores the other one,
+    so the user never loses work when going back and forth.
+    """
+
+    # --- Signals emitted by user actions ---
+    mode_changed = Signal(bool)  # True = img2img, False = txt2img
+    browse_clicked = Signal()
+    generate_clicked = Signal()
+    save_clicked = Signal()
+    copy_seed_clicked = Signal()
+    clear_clicked = Signal()
+    unload_models_clicked = Signal()
+
+    # Default prompts shown on first launch for each mode
+    _DEFAULT_TXT2IMG_PROMPT = "a cute cat sitting on a windowsill"
+    _DEFAULT_IMG2IMG_PROMPT = ""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Per-mode prompt storage — initialised from defaults
+        self._txt2img_prompt: str = self._DEFAULT_TXT2IMG_PROMPT
+        self._img2img_prompt: str = self._DEFAULT_IMG2IMG_PROMPT
         self._setup_ui()
+        self._connect_internal_signals()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
 
     def _setup_ui(self):
-        """Build the left panel UI"""
-        # Main layout with scroll support
+        """Assemble the left panel from section helpers"""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
 
-        # Scrollable area for controls
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
@@ -204,211 +244,281 @@ class LeftConfigPanel(QWidget):
         layout = QVBoxLayout(scroll_content)
         layout.setSpacing(10)
 
-        # Title
         title = QLabel("DJ's FLUX.2 Klein Generator")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
-        # Mode selection
-        self.mode_group_box = QGroupBox("Generation Mode")
-        mode_layout = QHBoxLayout()
-        self.mode_button_group = QButtonGroup()
-
-        self.txt2img_radio = QRadioButton("Text-to-Image")
-        self.img2img_radio = QRadioButton("Image-to-Image")
-        self.txt2img_radio.setChecked(True)
-
-        self.mode_button_group.addButton(self.txt2img_radio, 0)
-        self.mode_button_group.addButton(self.img2img_radio, 1)
-
-        mode_layout.addWidget(self.txt2img_radio)
-        mode_layout.addWidget(self.img2img_radio)
-        mode_layout.addStretch()
-        self.mode_group_box.setLayout(mode_layout)
-        layout.addWidget(self.mode_group_box)
-
-        # Input image section
-        self.input_group = QGroupBox("Input Image (for img2img)")
-        input_layout = QHBoxLayout()
-
-        self.browse_btn = QPushButton("Browse...")
-        self.input_label = QLabel("No image selected")
-
-        input_layout.addWidget(self.browse_btn)
-        input_layout.addWidget(self.input_label)
-        input_layout.addStretch()
-        self.input_group.setLayout(input_layout)
-        layout.addWidget(self.input_group)
-
-        # Prompt
-        prompt_group = QGroupBox("Prompt")
-        prompt_layout = QVBoxLayout()
-
-        self.prompt_text = QTextEdit()
-        self.prompt_text.setMinimumHeight(80)  # Minimum height for usability
-        # No maximum height - will expand to fill available space
-        self.prompt_text.setPlainText("a cute cat sitting on a windowsill")
-        # Set size policy to allow vertical expansion
-        self.prompt_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        prompt_layout.addWidget(self.prompt_text)
-        prompt_group.setLayout(prompt_layout)
-        # Add with stretch factor to allow resizing
-        layout.addWidget(prompt_group, 1)
-
-        # Parameters
-        params_group = QGroupBox("Generation Parameters")
-        params_layout = QGridLayout()
-
-        # Width
-        params_layout.addWidget(QLabel("Width:"), 0, 0)
-        self.width_combo = QComboBox()
-        self.width_combo.addItems(["256", "512", "768", "1024", "1280", "1536"])
-        self.width_combo.setCurrentText("512")
-        params_layout.addWidget(self.width_combo, 0, 1)
-
-        # Height
-        params_layout.addWidget(QLabel("Height:"), 0, 2)
-        self.height_combo = QComboBox()
-        self.height_combo.addItems(["256", "512", "768", "1024", "1280", "1536"])
-        self.height_combo.setCurrentText("512")
-        params_layout.addWidget(self.height_combo, 0, 3)
-
-        # Steps
-        params_layout.addWidget(QLabel("Steps:"), 1, 0)
-        self.steps_spin = QSpinBox()
-        self.steps_spin.setRange(1, 50)
-        self.steps_spin.setValue(4)
-        self.steps_spin.setToolTip(
-            "Recommended: 4 steps (Klein is a distilled model).\n"
-            "Values above 8 are slower with no quality benefit."
-        )
-        params_layout.addWidget(self.steps_spin, 1, 1)
-
-        # Guidance
-        params_layout.addWidget(QLabel("Guidance:"), 1, 2)
-        self.guidance_spin = QDoubleSpinBox()
-        self.guidance_spin.setRange(0.1, 5.0)
-        self.guidance_spin.setSingleStep(0.1)
-        self.guidance_spin.setValue(1.0)
-        params_layout.addWidget(self.guidance_spin, 1, 3)
-
-        # Seed
-        params_layout.addWidget(QLabel("Seed:"), 2, 0)
-        self.seed_combo = QComboBox()
-        self.seed_combo.setEditable(True)
-        self.seed_combo.addItem("Random")
-        self.seed_combo.setCurrentText("Random")
-        params_layout.addWidget(self.seed_combo, 2, 1, 1, 3)
-
-        params_group.setLayout(params_layout)
-        layout.addWidget(params_group)
-
-        # Upscaling options
-        upscale_group = QGroupBox("Upscaling (Optional)")
-        upscale_layout = QVBoxLayout()
-
-        self.upscale_check = QCheckBox("Enable Upscaling")
-        upscale_layout.addWidget(self.upscale_check)
-
-        scale_layout = QHBoxLayout()
-        scale_layout.addWidget(QLabel("Scale:"))
-
-        self.scale_button_group = QButtonGroup()
-        self.scale_2x = QRadioButton("2x")
-        self.scale_4x = QRadioButton("4x")
-        self.scale_2x.setChecked(True)
-        self.scale_button_group.addButton(self.scale_2x, 2)
-        self.scale_button_group.addButton(self.scale_4x, 4)
-
-        scale_layout.addWidget(self.scale_2x)
-        scale_layout.addWidget(self.scale_4x)
-        scale_layout.addStretch()
-        upscale_layout.addLayout(scale_layout)
-
-        method_layout = QHBoxLayout()
-        method_layout.addWidget(QLabel("Method:"))
-
-        self.method_button_group = QButtonGroup()
-        self.method_lanczos = QRadioButton("Lanczos (fast, CPU)")
-        self.method_realesrgan = QRadioButton("Real-ESRGAN (AI, GPU)")
-        self.method_lanczos.setChecked(True)
-        self.method_button_group.addButton(self.method_lanczos, 0)
-        self.method_button_group.addButton(self.method_realesrgan, 1)
-
-        method_layout.addWidget(self.method_lanczos)
-        method_layout.addWidget(self.method_realesrgan)
-        method_layout.addStretch()
-        upscale_layout.addLayout(method_layout)
-
-        upscale_group.setLayout(upscale_layout)
-        layout.addWidget(upscale_group)
-
-        # Generate button and status
-        control_layout = QVBoxLayout()
-
-        self.generate_btn = QPushButton("Generate Image")
-        self.generate_btn.setMinimumHeight(40)
-
-        self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: green; font-weight: bold;")
-        self.status_label.setAlignment(Qt.AlignCenter)
-
-        control_layout.addWidget(self.generate_btn)
-        control_layout.addWidget(self.status_label)
-        layout.addLayout(control_layout)
-
-        # Action buttons
-        button_layout = QHBoxLayout()
-
-        self.save_btn = QPushButton("Save Image...")
-        self.save_btn.setEnabled(False)
-
-        self.copy_seed_btn = QPushButton("Copy Seed")
-
-        self.clear_btn = QPushButton("Clear")
-
-        button_layout.addWidget(self.save_btn)
-        button_layout.addWidget(self.copy_seed_btn)
-        button_layout.addWidget(self.clear_btn)
-        layout.addLayout(button_layout)
-
-        # Model status and control
-        model_control_layout = QHBoxLayout()
-
-        self.model_status_label = QLabel("Models: Not loaded")
-        self.model_status_label.setStyleSheet("color: gray; font-size: 10px;")
-
-        self.unload_models_btn = QPushButton("Unload Models")
-        self.unload_models_btn.setEnabled(False)
-        self.unload_models_btn.setToolTip("Free GPU/RAM by unloading models")
-
-        model_control_layout.addWidget(self.model_status_label)
-        model_control_layout.addWidget(self.unload_models_btn)
-        layout.addLayout(model_control_layout)
-
+        layout.addWidget(self._build_mode_section())
+        layout.addWidget(self._build_input_section())
+        layout.addWidget(self._build_prompt_section(), 1)  # stretch
+        layout.addWidget(self._build_params_section())
+        layout.addWidget(self._build_upscale_section())
+        layout.addLayout(self._build_action_section())
+        layout.addLayout(self._build_model_section())
         layout.addStretch()
 
-        # Set scroll content
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
-        # Set preferred width
         self.setMinimumWidth(450)
         self.setMaximumWidth(600)
 
+    def _build_mode_section(self) -> QWidget:
+        """Mode selection radio buttons"""
+        group = QGroupBox("Generation Mode")
+        layout = QHBoxLayout()
+
+        self._mode_button_group = QButtonGroup()
+        self._txt2img_radio = QRadioButton("Text-to-Image")
+        self._img2img_radio = QRadioButton("Image-to-Image")
+        self._txt2img_radio.setChecked(True)
+        self._mode_button_group.addButton(self._txt2img_radio, 0)
+        self._mode_button_group.addButton(self._img2img_radio, 1)
+
+        layout.addWidget(self._txt2img_radio)
+        layout.addWidget(self._img2img_radio)
+        layout.addStretch()
+        group.setLayout(layout)
+        return group
+
+    def _build_input_section(self) -> QWidget:
+        """Input image selector (shown only in img2img mode)"""
+        self._input_group = QGroupBox("Input Image (for img2img)")
+        layout = QHBoxLayout()
+
+        self._browse_btn = QPushButton("Browse...")
+        self._input_label = QLabel("No image selected")
+
+        layout.addWidget(self._browse_btn)
+        layout.addWidget(self._input_label)
+        layout.addStretch()
+        self._input_group.setLayout(layout)
+        return self._input_group
+
+    def _build_prompt_section(self) -> QWidget:
+        """Prompt text area — content is swapped per mode by _save_and_swap_prompt"""
+        group = QGroupBox("Prompt")
+        layout = QVBoxLayout()
+
+        self._prompt_text = QTextEdit()
+        self._prompt_text.setMinimumHeight(80)
+        # Start with the txt2img default (the active mode at launch)
+        self._prompt_text.setPlainText(self._txt2img_prompt)
+        self._prompt_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        layout.addWidget(self._prompt_text)
+        group.setLayout(layout)
+        return group
+
+    def _build_params_section(self) -> QWidget:
+        """Width, height, steps, guidance, seed controls"""
+        group = QGroupBox("Generation Parameters")
+        layout = QGridLayout()
+
+        # Width
+        layout.addWidget(QLabel("Width:"), 0, 0)
+        self._width_combo = QComboBox()
+        self._width_combo.addItems(["256", "512", "768", "1024", "1280", "1536"])
+        self._width_combo.setCurrentText("512")
+        layout.addWidget(self._width_combo, 0, 1)
+
+        # Height
+        layout.addWidget(QLabel("Height:"), 0, 2)
+        self._height_combo = QComboBox()
+        self._height_combo.addItems(["256", "512", "768", "1024", "1280", "1536"])
+        self._height_combo.setCurrentText("512")
+        layout.addWidget(self._height_combo, 0, 3)
+
+        # Steps
+        layout.addWidget(QLabel("Steps:"), 1, 0)
+        self._steps_spin = QSpinBox()
+        self._steps_spin.setRange(1, 50)
+        self._steps_spin.setValue(4)
+        self._steps_spin.setToolTip(
+            "Recommended: 4 steps (Klein is a distilled model).\n"
+            "Values above 8 are slower with no quality benefit."
+        )
+        layout.addWidget(self._steps_spin, 1, 1)
+
+        # Guidance
+        layout.addWidget(QLabel("Guidance:"), 1, 2)
+        self._guidance_spin = QDoubleSpinBox()
+        self._guidance_spin.setRange(0.1, 5.0)
+        self._guidance_spin.setSingleStep(0.1)
+        self._guidance_spin.setValue(1.0)
+        layout.addWidget(self._guidance_spin, 1, 3)
+
+        # Seed
+        layout.addWidget(QLabel("Seed:"), 2, 0)
+        self._seed_combo = QComboBox()
+        self._seed_combo.setEditable(True)
+        self._seed_combo.addItem("Random")
+        self._seed_combo.setCurrentText("Random")
+        layout.addWidget(self._seed_combo, 2, 1, 1, 3)
+
+        group.setLayout(layout)
+        return group
+
+    def _build_upscale_section(self) -> QWidget:
+        """Upscaling options with sub-controls that enable/disable with the checkbox"""
+        group = QGroupBox("Upscaling (Optional)")
+        layout = QVBoxLayout()
+
+        self._upscale_check = QCheckBox("Enable Upscaling")
+        layout.addWidget(self._upscale_check)
+
+        # Scale radio buttons
+        scale_layout = QHBoxLayout()
+        scale_layout.addWidget(QLabel("Scale:"))
+        self._scale_button_group = QButtonGroup()
+        self._scale_2x = QRadioButton("2x")
+        self._scale_4x = QRadioButton("4x")
+        self._scale_2x.setChecked(True)
+        self._scale_button_group.addButton(self._scale_2x, 2)
+        self._scale_button_group.addButton(self._scale_4x, 4)
+        scale_layout.addWidget(self._scale_2x)
+        scale_layout.addWidget(self._scale_4x)
+        scale_layout.addStretch()
+        layout.addLayout(scale_layout)
+
+        # Method radio buttons
+        method_layout = QHBoxLayout()
+        method_layout.addWidget(QLabel("Method:"))
+        self._method_button_group = QButtonGroup()
+        self._method_lanczos = QRadioButton("Lanczos (fast, CPU)")
+        self._method_realesrgan = QRadioButton("Real-ESRGAN (AI, GPU)")
+        self._method_lanczos.setChecked(True)
+        self._method_button_group.addButton(self._method_lanczos, 0)
+        self._method_button_group.addButton(self._method_realesrgan, 1)
+        method_layout.addWidget(self._method_lanczos)
+        method_layout.addWidget(self._method_realesrgan)
+        method_layout.addStretch()
+        layout.addLayout(method_layout)
+
+        group.setLayout(layout)
+
+        # Sub-controls start disabled; they enable only when the checkbox is on
+        self._upscale_sub_widgets = [
+            self._scale_2x,
+            self._scale_4x,
+            self._method_lanczos,
+            self._method_realesrgan,
+        ]
+        self._set_upscale_sub_controls_enabled(False)
+
+        return group
+
+    def _build_action_section(self) -> QVBoxLayout:
+        """Generate button, status label, and save/copy/clear buttons"""
+        layout = QVBoxLayout()
+
+        self._generate_btn = QPushButton("Generate Image")
+        self._generate_btn.setMinimumHeight(40)
+
+        self._status_label = QLabel("Ready")
+        self._status_label.setStyleSheet(_STATUS_STYLES[StatusState.READY])
+        self._status_label.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(self._generate_btn)
+        layout.addWidget(self._status_label)
+
+        button_layout = QHBoxLayout()
+        self._save_btn = QPushButton("Save Image...")
+        self._save_btn.setEnabled(False)
+        self._copy_seed_btn = QPushButton("Copy Seed")
+        self._clear_btn = QPushButton("Clear")
+
+        button_layout.addWidget(self._save_btn)
+        button_layout.addWidget(self._copy_seed_btn)
+        button_layout.addWidget(self._clear_btn)
+        layout.addLayout(button_layout)
+
+        return layout
+
+    def _build_model_section(self) -> QHBoxLayout:
+        """Model load status indicator and unload button"""
+        layout = QHBoxLayout()
+
+        self._model_status_label = QLabel("Models: Not loaded")
+        self._model_status_label.setStyleSheet("color: gray; font-size: 10px;")
+
+        self._unload_models_btn = QPushButton("Unload Models")
+        self._unload_models_btn.setEnabled(False)
+        self._unload_models_btn.setToolTip("Free GPU/RAM by unloading models")
+
+        layout.addWidget(self._model_status_label)
+        layout.addWidget(self._unload_models_btn)
+        return layout
+
+    # ------------------------------------------------------------------
+    # Internal signal wiring
+    # ------------------------------------------------------------------
+
+    def _connect_internal_signals(self):
+        """Wire internal widget events to outward-facing signals and helpers"""
+        # Save the current prompt and restore the other mode's prompt, then
+        # emit mode_changed so FluxGUI can react.  Only fires on the newly
+        # selected radio (checked=True) to avoid double-emission.
+        self._txt2img_radio.toggled.connect(
+            lambda checked: self._save_and_swap_prompt(to_img2img=False)
+            or self.mode_changed.emit(False)
+            if checked
+            else None
+        )
+        self._img2img_radio.toggled.connect(
+            lambda checked: self._save_and_swap_prompt(to_img2img=True)
+            or self.mode_changed.emit(True)
+            if checked
+            else None
+        )
+        self._browse_btn.clicked.connect(self.browse_clicked)
+        self._generate_btn.clicked.connect(self.generate_clicked)
+        self._save_btn.clicked.connect(self.save_clicked)
+        self._copy_seed_btn.clicked.connect(self.copy_seed_clicked)
+        self._clear_btn.clicked.connect(self.clear_clicked)
+        self._unload_models_btn.clicked.connect(self.unload_models_clicked)
+
+        # Toggle upscale sub-controls with the checkbox
+        self._upscale_check.stateChanged.connect(self._on_upscale_toggled)
+
+    def _on_upscale_toggled(self, state: int):
+        """Enable or disable scale/method controls based on the upscale checkbox"""
+        self._set_upscale_sub_controls_enabled(bool(state))
+
+    def _set_upscale_sub_controls_enabled(self, enabled: bool):
+        for widget in self._upscale_sub_widgets:
+            widget.setEnabled(enabled)
+
+    def _save_and_swap_prompt(self, to_img2img: bool):
+        """Save the current prompt for the leaving mode and restore the arriving mode's prompt.
+
+        Args:
+            to_img2img: True when switching to img2img, False when switching to txt2img.
+        """
+        current_text = self._prompt_text.toPlainText()
+        if to_img2img:
+            self._txt2img_prompt = current_text
+            self._prompt_text.setPlainText(self._img2img_prompt)
+        else:
+            self._img2img_prompt = current_text
+            self._prompt_text.setPlainText(self._txt2img_prompt)
+
+    # ------------------------------------------------------------------
+    # Public API used by FluxGUI
+    # ------------------------------------------------------------------
+
     def is_img2img_mode(self) -> bool:
-        """Check if in image-to-image mode"""
-        return self.img2img_radio.isChecked()
+        """Return True if Image-to-Image mode is selected"""
+        return self._img2img_radio.isChecked()
 
     def get_prompt(self) -> str:
-        """Get current prompt text"""
-        return self.prompt_text.toPlainText()
+        """Return current prompt text"""
+        return self._prompt_text.toPlainText()
 
     def get_seed(self) -> int | None:
-        """Get seed value (None for random)"""
-        seed_text = self.seed_combo.currentText().strip()
+        """Return seed value, or None for random"""
+        seed_text = self._seed_combo.currentText().strip()
         if seed_text.lower() == "random" or seed_text == "":
             return None
         try:
@@ -420,59 +530,92 @@ class LeftConfigPanel(QWidget):
         """Gather all generation parameters from UI controls"""
         return {
             "prompt": self.get_prompt(),
-            "width": int(self.width_combo.currentText()),
-            "height": int(self.height_combo.currentText()),
-            "steps": self.steps_spin.value(),
-            "guidance": self.guidance_spin.value(),
+            "width": int(self._width_combo.currentText()),
+            "height": int(self._height_combo.currentText()),
+            "steps": self._steps_spin.value(),
+            "guidance": self._guidance_spin.value(),
             "seed": self.get_seed(),
-            "do_upscale": self.upscale_check.isChecked(),
-            "upscale_scale": self.scale_button_group.checkedId(),
-            "upscale_method": "realesrgan"
-            if self.method_realesrgan.isChecked()
-            else "lanczos",
+            "do_upscale": self._upscale_check.isChecked(),
+            "upscale_scale": self._scale_button_group.checkedId(),
+            "upscale_method": (
+                "realesrgan" if self._method_realesrgan.isChecked() else "lanczos"
+            ),
         }
 
-    def reset_to_defaults(self):
-        """Reset all controls to default values"""
-        self.prompt_text.setPlainText("a cute cat sitting on a windowsill")
-        self.width_combo.setCurrentText("512")
-        self.height_combo.setCurrentText("512")
-        self.steps_spin.setValue(4)
-        self.guidance_spin.setValue(1.0)
-        self.seed_combo.setCurrentText("Random")
-        self.upscale_check.setChecked(False)
-        self.scale_2x.setChecked(True)
-        self.method_lanczos.setChecked(True)
-        self.input_label.setText("No image selected")
-        self.status_label.setText("Ready")
-        self.status_label.setStyleSheet("color: green; font-weight: bold;")
-        self.save_btn.setEnabled(False)
+    def set_input_label(self, text: str):
+        """Update the input image filename label"""
+        self._input_label.setText(text)
+
+    def set_input_group_visible(self, visible: bool):
+        """Show or hide the input image group box"""
+        self._input_group.setVisible(visible)
+
+    def set_generate_enabled(self, enabled: bool):
+        """Enable or disable the Generate button"""
+        self._generate_btn.setEnabled(enabled)
+
+    def set_save_enabled(self, enabled: bool):
+        """Enable or disable the Save button"""
+        self._save_btn.setEnabled(enabled)
+
+    def set_status(self, message: str, state: StatusState):
+        """Update the status label text and colour"""
+        self._status_label.setText(message)
+        self._status_label.setStyleSheet(_STATUS_STYLES[state])
 
     def set_seed(self, seed: int | str):
-        """Set seed value in combo box"""
-        self.seed_combo.setCurrentText(str(seed))
+        """Set seed value in the combo box"""
+        self._seed_combo.setCurrentText(str(seed))
 
     def update_model_status(self, is_loaded: bool, memory_str: str = ""):
-        """Update model status indicator
+        """Update the model load status indicator and Unload button state
 
         Args:
             is_loaded: Whether models are currently loaded in memory
             memory_str: Memory usage string (e.g., "~4.2 GB")
         """
         if is_loaded:
-            self.model_status_label.setText(f"Models: Loaded ({memory_str})")
-            self.model_status_label.setStyleSheet(
+            self._model_status_label.setText(f"Models: Loaded ({memory_str})")
+            self._model_status_label.setStyleSheet(
                 "color: green; font-size: 10px; font-weight: bold;"
             )
-            self.unload_models_btn.setEnabled(True)
+            self._unload_models_btn.setEnabled(True)
         else:
-            self.model_status_label.setText("Models: Not loaded")
-            self.model_status_label.setStyleSheet("color: gray; font-size: 10px;")
-            self.unload_models_btn.setEnabled(False)
+            self._model_status_label.setText("Models: Not loaded")
+            self._model_status_label.setStyleSheet("color: gray; font-size: 10px;")
+            self._unload_models_btn.setEnabled(False)
+
+    def reset_to_defaults(self):
+        """Reset all controls to default values"""
+        # Reset stored prompts for both modes
+        self._txt2img_prompt = self._DEFAULT_TXT2IMG_PROMPT
+        self._img2img_prompt = self._DEFAULT_IMG2IMG_PROMPT
+        # Restore the prompt for whichever mode is currently active
+        if self._img2img_radio.isChecked():
+            self._prompt_text.setPlainText(self._img2img_prompt)
+        else:
+            self._prompt_text.setPlainText(self._txt2img_prompt)
+        self._width_combo.setCurrentText("512")
+        self._height_combo.setCurrentText("512")
+        self._steps_spin.setValue(4)
+        self._guidance_spin.setValue(1.0)
+        self._seed_combo.setCurrentText("Random")
+        self._upscale_check.setChecked(False)
+        self._scale_2x.setChecked(True)
+        self._method_lanczos.setChecked(True)
+        self._input_label.setText("No image selected")
+        self.set_status("Ready", StatusState.READY)
+        self._save_btn.setEnabled(False)
 
 
 class RightImagePanel(QWidget):
-    """Right panel for image previews - switches layout based on mode"""
+    """Right panel for image previews — switches between txt2img and img2img layouts.
+
+    Both ImagePreviewPanel widgets are created once and kept alive for the
+    lifetime of this panel.  Mode switching only shows/hides the input panel
+    and adjusts the splitter sizes — no widget creation or destruction occurs
+    after initialisation.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -480,71 +623,50 @@ class RightImagePanel(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        """Build the right panel UI"""
-        # Main layout that will be switched
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        """Create the persistent layout: a QSplitter holding both panels"""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Create preview panels
         self.input_preview = ImagePreviewPanel(
-            "Input Image", "(img2img mode only)", min_size=512
+            "Input Image", "(img2img mode only)", min_size=256
         )
         self.output_preview = ImagePreviewPanel(
-            "Generated Image", "Generate an image to see preview", min_size=512
+            "Generated Image", "Generate an image to see preview", min_size=256
         )
 
-        # Start in text-to-image mode (single preview)
+        # Single persistent splitter — never recreated on mode switch
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.addWidget(self.input_preview)
+        self._splitter.addWidget(self.output_preview)
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 1)
+
+        main_layout.addWidget(self._splitter)
+
+        # Initialise to txt2img (input panel hidden)
         self.set_mode(False)
 
     def set_mode(self, is_img2img: bool):
-        """Switch between text-to-image and image-to-image layouts"""
+        """Switch between txt2img (single panel) and img2img (side-by-side) layouts.
+
+        No widgets are created or destroyed here — only visibility and splitter
+        sizes change.
+        """
         if self._current_mode == is_img2img:
-            return  # Already in correct mode
+            return
 
         self._current_mode = is_img2img
 
-        # Clear current layout contents.  The two persistent panel widgets
-        # (input_preview / output_preview) must NOT be reparented to None —
-        # that schedules their underlying C++ objects for deletion, which
-        # causes "Internal C++ object already deleted" errors the next time
-        # they are accessed.  Instead we reparent them back to `self` to keep
-        # them alive, and only schedule the transient QSplitter for deletion.
-        while self.main_layout.count():
-            item = self.main_layout.takeAt(0)
-            widget = item.widget() if item else None
-            if widget is None:
-                continue
-            if widget is self.input_preview or widget is self.output_preview:
-                # Persistent panel — keep alive, just detach from layout
-                widget.setParent(self)
-            else:
-                # Transient container (e.g. QSplitter) — destroy it, but first
-                # remove the panel widgets so they are not destroyed with it.
-                if hasattr(widget, "count"):
-                    for i in range(widget.count()):
-                        child = widget.widget(i)
-                        if child is self.input_preview or child is self.output_preview:
-                            child.setParent(self)
-                widget.deleteLater()
-
         if is_img2img:
-            # Side-by-side splitter for img2img — always divides space equally
-            # and allows the user to drag the divider if desired
-            splitter = QSplitter(Qt.Horizontal)
-            splitter.addWidget(self.input_preview)
-            splitter.addWidget(self.output_preview)
-            splitter.setStretchFactor(0, 1)
-            splitter.setStretchFactor(1, 1)
-            self.main_layout.addWidget(splitter)
-
-            # Show input preview
             self.input_preview.setVisible(True)
+            # Equal split
+            total = self._splitter.width()
+            half = total // 2 if total > 0 else 400
+            self._splitter.setSizes([half, half])
         else:
-            # Single preview for txt2img - fill available space
-            self.main_layout.addWidget(self.output_preview)
-
-            # Hide input preview
             self.input_preview.setVisible(False)
+            # Give all space to output panel
+            self._splitter.setSizes([0, self._splitter.width() or 800])
 
     def clear_previews(self):
         """Clear both preview panels"""

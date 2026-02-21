@@ -7,7 +7,7 @@ import gc
 from pathlib import Path
 import tempfile
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TypedDict
 
 # Add script directory and flux2/src to path (handle both local and installed as tool)
 script_dir = Path(__file__).parent.resolve()
@@ -29,14 +29,30 @@ from PIL import Image
 
 # Import UI components (from script directory)
 from gui_components import LeftConfigPanel, RightImagePanel, open_image_file_dialog
+from gui_components import StatusState
 
 # Import existing generation functions
 from generate_image import generate_image, model_cache
 from upscale_image import upscale_image
 
 
+class GenerationParams(TypedDict):
+    """All parameters passed from the UI to the GenerationWorker thread"""
+
+    prompt: str
+    width: int
+    height: int
+    steps: int
+    guidance: float
+    seed: Optional[int]
+    input_image: Optional[str]
+    do_upscale: bool
+    upscale_scale: int
+    upscale_method: str
+
+
 class GuiState:
-    """Container for GUI state"""
+    """Container for mutable GUI state"""
 
     def __init__(self):
         self.input_image_path: Optional[str] = None
@@ -69,25 +85,13 @@ class GenerationWorker(QThread):
     finished = Signal(str, object)  # image_path, seed
     error = Signal(str)  # error_message
 
-    def __init__(self, params):
+    def __init__(self, params: GenerationParams):
         super().__init__()
         self.params = params
 
     def run(self):
         """Run generation in background thread"""
         try:
-            # Extract parameters
-            prompt = self.params["prompt"]
-            width = self.params["width"]
-            height = self.params["height"]
-            steps = self.params["steps"]
-            guidance = self.params["guidance"]
-            seed = self.params["seed"]
-            input_image = self.params["input_image"]
-            do_upscale = self.params["do_upscale"]
-            upscale_scale = self.params["upscale_scale"]
-            upscale_method = self.params["upscale_method"]
-
             # Create temp output path
             temp_fd, temp_path = tempfile.mkstemp(suffix=".png", prefix="flux_gui_")
             os.close(temp_fd)
@@ -95,22 +99,19 @@ class GenerationWorker(QThread):
             # Generate image
             self.progress.emit("Generating image...", "orange")
             actual_seed = generate_image(
-                prompt=prompt,
+                prompt=self.params["prompt"],
                 output_path=temp_path,
-                input_image=input_image,
-                width=width,
-                height=height,
-                num_steps=steps,
-                guidance=guidance,
-                seed=seed,
+                input_image=self.params["input_image"],
+                width=self.params["width"],
+                height=self.params["height"],
+                num_steps=self.params["steps"],
+                guidance=self.params["guidance"],
+                seed=self.params["seed"],
             )
-
-            # Store the actual seed used (either provided or generated)
-            current_seed = actual_seed
 
             # Optionally upscale
             final_path = temp_path
-            if do_upscale:
+            if self.params["do_upscale"]:
                 self.progress.emit("Upscaling...", "orange")
 
                 upscaled_fd, upscaled_path = tempfile.mkstemp(
@@ -121,16 +122,15 @@ class GenerationWorker(QThread):
                 upscale_image(
                     input_path=temp_path,
                     output_path=upscaled_path,
-                    scale=upscale_scale,
-                    method=upscale_method,
+                    scale=self.params["upscale_scale"],
+                    method=self.params["upscale_method"],
                 )
 
                 # Clean up non-upscaled temp file
                 os.remove(temp_path)
                 final_path = upscaled_path
 
-            # Emit success
-            self.finished.emit(final_path, current_seed)
+            self.finished.emit(final_path, actual_seed)
 
         except Exception as e:
             self.error.emit(str(e))
@@ -144,10 +144,8 @@ class FluxGUI(QMainWindow):
         self.setWindowTitle("DJ FLUX.2")
         self.setMinimumSize(900, 725)
 
-        # State
         self.state = GuiState()
 
-        # Build UI
         self._create_ui()
         self._connect_signals()
 
@@ -156,136 +154,124 @@ class FluxGUI(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
 
-        # Main horizontal splitter
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left panel (configuration)
         self.left_panel = LeftConfigPanel(self)
-
-        # Right panel (image previews)
         self.right_panel = RightImagePanel(self)
 
-        # Add to splitter
         splitter.addWidget(self.left_panel)
         splitter.addWidget(self.right_panel)
         splitter.setStretchFactor(0, 0)  # Left panel fixed-ish
         splitter.setStretchFactor(1, 1)  # Right panel expands
         splitter.setSizes([500, 900])
 
-        # Set as central widget
         layout = QHBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
-        # Initialize visibility
-        self._on_mode_change()
+        # Initialise panel visibility to match the default mode (txt2img)
+        self._on_mode_change(False)
 
     def _connect_signals(self):
-        """Centralized signal connection for clarity"""
-        # Mode switching
-        self.left_panel.txt2img_radio.toggled.connect(self._on_mode_change)
+        """Connect LeftConfigPanel signals to FluxGUI handlers"""
+        self.left_panel.mode_changed.connect(self._on_mode_change)
+        self.left_panel.browse_clicked.connect(self._browse_input_image)
+        self.left_panel.generate_clicked.connect(self._generate_image)
+        self.left_panel.save_clicked.connect(self._save_image)
+        self.left_panel.copy_seed_clicked.connect(self._copy_seed)
+        self.left_panel.clear_clicked.connect(self._clear)
+        self.left_panel.unload_models_clicked.connect(self._unload_models)
 
-        # File operations
-        self.left_panel.browse_btn.clicked.connect(self._browse_input_image)
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
 
-        # Generation
-        self.left_panel.generate_btn.clicked.connect(self._generate_image)
+    def _on_mode_change(self, is_img2img: bool):
+        """Handle mode switching between txt2img and img2img.
 
-        # Actions
-        self.left_panel.save_btn.clicked.connect(self._save_image)
-        self.left_panel.copy_seed_btn.clicked.connect(self._copy_seed)
-        self.left_panel.clear_btn.clicked.connect(self._clear)
+        When switching to img2img: if there is already a generated image,
+        load it into the input panel automatically so the user can immediately
+        start refining without having to browse for the file manually.
 
-        # Model management
-        self.left_panel.unload_models_btn.clicked.connect(self._unload_models)
-
-    def _on_mode_change(self):
-        """Handle mode switching"""
-        is_img2img = self.left_panel.is_img2img_mode()
-
-        # Update left panel visibility
-        self.left_panel.input_group.setVisible(is_img2img)
-
-        # Update right panel layout
+        When switching back to txt2img: clear the input state but preserve
+        the output panel so the last result stays visible.
+        """
+        self.left_panel.set_input_group_visible(is_img2img)
         self.right_panel.set_mode(is_img2img)
 
-        # Clear input state if switching to txt2img
-        if not is_img2img:
+        if is_img2img:
+            # Auto-populate the input from the last generated image if available
+            # and no input image has been explicitly chosen yet for this session.
+            if self.state.generated_image_path and not self.state.input_image_path:
+                self._load_input_image(self.state.generated_image_path)
+            # Restore the output preview (mode switch hid nothing on the output
+            # side, but if there is a generated image make sure it is displayed)
+            if self.state.generated_image_path:
+                self.right_panel.output_preview.display_image(
+                    self.state.generated_image_path
+                )
+        else:
+            # Switching back to txt2img: drop the input image reference
             self.state.input_image_path = None
-            self.left_panel.input_label.setText("No image selected")
+            self.left_panel.set_input_label("No image selected")
             self.right_panel.input_preview.clear()
+            # Keep the output preview intact so the user can still see the last result
 
-        # Clear all previews to release memory when switching modes
-        self.right_panel.clear_previews()
+    def _load_input_image(self, filepath: str):
+        """Set filepath as the active input image and update the UI.
 
-        # Force garbage collection to free pixmap memory
-        gc.collect()
+        Used both by the browse button and the auto-load-on-mode-switch path.
+        """
+        self.state.input_image_path = filepath
+        self.left_panel.set_input_label(f"Selected: {Path(filepath).name}")
+        self.right_panel.input_preview.display_image(filepath)
 
     def _browse_input_image(self):
         """Open file picker for input image with live preview"""
         filepath = open_image_file_dialog(self, "Select Input Image")
-
         if filepath:
-            self.state.input_image_path = filepath
-            filename = Path(filepath).name
-            self.left_panel.input_label.setText(f"Selected: {filename}")
-
-            # Display preview
-            self.right_panel.input_preview.display_image(filepath)
+            self._load_input_image(filepath)
 
     def _validate_generation_params(self) -> tuple[bool, str]:
         """Validate parameters before generation"""
         if self.left_panel.is_img2img_mode() and not self.state.input_image_path:
             return False, "Please select an input image for img2img mode"
-
-        prompt = self.left_panel.get_prompt()
-        if not prompt.strip():
+        if not self.left_panel.get_prompt().strip():
             return False, "Please enter a prompt"
-
         return True, ""
 
     def _generate_image(self):
         """Start image generation in worker thread"""
-        # Validate
         valid, error_msg = self._validate_generation_params()
         if not valid:
             QMessageBox.critical(self, "Error", error_msg)
             return
 
-        # Clean up previous generation to prevent memory leaks
+        # Clean up previous generation temp file
         if self.state.previous_temp_file:
             self.state.cleanup_temp_file()
             self.state.previous_temp_file = None
 
-        # Clean up previous worker thread
+        # Stop any still-running worker to prevent concurrent GPU access
         if self.state.worker is not None:
-            # Disconnect signals to prevent stale connections
             self.state.worker.progress.disconnect()
             self.state.worker.finished.disconnect()
             self.state.worker.error.disconnect()
-            # Request stop and block until the thread actually finishes.
-            # This prevents concurrent GPU access from two generation threads,
-            # which can corrupt GPU state or cause OOM errors.
             self.state.worker.quit()
             self.state.worker.wait()
             self.state.worker.deleteLater()
             self.state.worker = None
 
-        # Force garbage collection to free memory from previous generation
         gc.collect()
 
-        # Update UI state
-        self.left_panel.generate_btn.setEnabled(False)
-        self.left_panel.status_label.setText("Generating...")
-        self.left_panel.status_label.setStyleSheet("color: orange; font-weight: bold;")
+        self.left_panel.set_generate_enabled(False)
+        self.left_panel.set_status("Generating...", StatusState.RUNNING)
 
-        # Get parameters from left panel
-        params = self.left_panel.get_generation_params()
+        params: GenerationParams = self.left_panel.get_generation_params()
         params["input_image"] = (
             self.state.input_image_path if self.left_panel.is_img2img_mode() else None
         )
 
-        # Start worker thread
         self.state.worker = GenerationWorker(params)
         self.state.worker.progress.connect(self._on_progress)
         self.state.worker.finished.connect(self._on_generation_complete)
@@ -293,35 +279,26 @@ class FluxGUI(QMainWindow):
         self.state.worker.start()
 
     def _on_progress(self, message: str, color: str):
-        """Update status label"""
-        self.left_panel.status_label.setText(message)
-        self.left_panel.status_label.setStyleSheet(
-            f"color: {color}; font-weight: bold;"
-        )
+        """Forward worker progress to the status label"""
+        # Map the colour string to the nearest StatusState
+        state = StatusState.RUNNING if color == "orange" else StatusState.SUCCESS
+        self.left_panel.set_status(message, state)
 
     def _on_generation_complete(self, image_path: str, seed):
         """Handle successful generation"""
-        # Store previous temp file for cleanup on next generation
         self.state.previous_temp_file = self.state.generated_image_path
-
         self.state.generated_image_path = image_path
         self.state.current_seed = seed
 
-        # Display image
         self.right_panel.output_preview.display_image(image_path)
 
-        # Update UI
-        self.left_panel.status_label.setText("Generation complete!")
-        self.left_panel.status_label.setStyleSheet("color: green; font-weight: bold;")
-        self.left_panel.generate_btn.setEnabled(True)
-        self.left_panel.save_btn.setEnabled(True)
+        self.left_panel.set_status("Generation complete!", StatusState.SUCCESS)
+        self.left_panel.set_generate_enabled(True)
+        self.left_panel.set_save_enabled(True)
 
-        # Update model status indicator (models are now loaded and cached)
         if model_cache.is_loaded():
-            mem = model_cache.get_memory_estimate()
-            self.left_panel.update_model_status(True, mem)
+            self.left_panel.update_model_status(True, model_cache.get_memory_estimate())
 
-        # Clean up worker and force garbage collection
         if self.state.worker is not None:
             self.state.worker.deleteLater()
             self.state.worker = None
@@ -329,11 +306,9 @@ class FluxGUI(QMainWindow):
 
     def _on_generation_error(self, error_msg: str):
         """Handle generation error"""
-        self.left_panel.status_label.setText("Error")
-        self.left_panel.status_label.setStyleSheet("color: red; font-weight: bold;")
-        self.left_panel.generate_btn.setEnabled(True)
+        self.left_panel.set_status("Error", StatusState.ERROR)
+        self.left_panel.set_generate_enabled(True)
 
-        # Clean up worker and force garbage collection even on error
         if self.state.worker is not None:
             self.state.worker.deleteLater()
             self.state.worker = None
@@ -349,7 +324,6 @@ class FluxGUI(QMainWindow):
             QMessageBox.warning(self, "No Image", "No generated image to save")
             return
 
-        # Default filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         default_name = f"flux_generated_{timestamp}.png"
 
@@ -360,21 +334,25 @@ class FluxGUI(QMainWindow):
             "PNG Files (*.png);;JPEG Files (*.jpg *.jpeg);;All Files (*)",
         )
 
-        if filepath:
-            try:
-                img = Image.open(self.state.generated_image_path)
+        if not filepath:
+            return
+
+        try:
+            img = Image.open(self.state.generated_image_path)
+            ext = Path(filepath).suffix.lower()
+            if ext in (".jpg", ".jpeg"):
                 img.save(filepath, quality=95, optimize=True)
-                QMessageBox.information(self, "Success", f"Image saved to:\n{filepath}")
-            except Exception as e:
-                QMessageBox.critical(
-                    self, "Save Error", f"Failed to save image:\n{str(e)}"
-                )
+            else:
+                # PNG and everything else: let PIL use format defaults
+                img.save(filepath)
+            QMessageBox.information(self, "Success", f"Image saved to:\n{filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save image:\n{str(e)}")
 
     def _copy_seed(self):
-        """Copy current seed to seed input"""
+        """Copy the last-used seed back into the seed field"""
         if self.state.current_seed is not None:
             self.left_panel.set_seed(self.state.current_seed)
-        # If no seed available, do nothing (user will see "Random" in the field)
 
     def _unload_models(self):
         """Unload models to free GPU/RAM memory"""
@@ -391,8 +369,7 @@ class FluxGUI(QMainWindow):
             QMessageBox.information(self, "Info", "Models are not currently loaded")
 
     def _clear(self):
-        """Reset form and preview"""
-        # Reset left panel
+        """Reset the form and previews; temp files are deleted but models stay loaded"""
         self.left_panel.reset_to_defaults()
 
         # Delete temp files BEFORE resetting state — reset_images() clears the
@@ -412,16 +389,15 @@ class FluxGUI(QMainWindow):
         # Now safe to clear state (paths already used above)
         self.state.reset_images()
 
-        # Clear previews
         self.right_panel.clear_previews()
-
-        # Unload models to free GPU/RAM memory
-        if model_cache.is_loaded():
-            model_cache.clear()
-            self.left_panel.update_model_status(False)
-
-        # Force garbage collection to free all memory
         gc.collect()
+
+    def closeEvent(self, event):
+        """Ensure the worker thread is stopped before the window closes"""
+        if self.state.worker is not None and self.state.worker.isRunning():
+            self.state.worker.quit()
+            self.state.worker.wait()
+        event.accept()
 
 
 def main():
