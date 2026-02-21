@@ -29,7 +29,18 @@ Minimal FLUX.2 Klein image generation with CUDA support. Fast, simple, and educa
 ```bash
 git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
+
+# Linux / macOS:
 uv tool install --editable .
+
+# Windows (CUDA) — uv tool install resolves independently from the project
+# venv, so the PyTorch CUDA index must be passed explicitly:
+uv tool install --editable . \
+  --index https://download.pytorch.org/whl/cu128 \
+  --index-strategy unsafe-best-match \
+  --reinstall-package torch \
+  --reinstall-package torchvision \
+  --reinstall-package triton-windows
 
 # All commands become available globally:
 dj-flux2 "your prompt"
@@ -66,7 +77,7 @@ FLUX.2 Klein models are gated and require accepting license terms before first u
    - Enable: "Read access to contents of all public gated repos"
 4. Login:
    ```bash
-   huggingface-cli login
+   hf auth login
    ```
 
 **FLUX models download automatically on first use** — no manual download step required. The first generation will take a few minutes longer while weights are fetched from HuggingFace to `~/.cache/huggingface/hub/`.
@@ -115,7 +126,7 @@ uv run gui_generate.py
 # Or: python gui_generate.py (with activated venv)
 ```
 
-**Note:** Install with `uv tool install --editable .` (editable mode) so the tool can access the `flux2/` submodule at runtime.
+**Note:** Install with `uv tool install --editable .` (editable mode) so the tool can access the `flux2/` submodule at runtime. On Windows, additional flags are required to install CUDA-enabled PyTorch — see [Installation Options](#installation-options) above.
 
 **The GUI provides:**
 - **Two modes**: Text-to-Image and Image-to-Image
@@ -177,7 +188,7 @@ python upscale_image.py -i input.png -o output.png
 - ✅ Traditional Python workflow
 - ✅ Works with any tool (not just uv)
 
-> **Note:** Always install with `uv tool install --editable .` (not plain `uv tool install .`) so the flux2 submodule is accessible at runtime.
+> **Note:** Always install with `uv tool install --editable .` (not plain `uv tool install .`) so the flux2 submodule is accessible at runtime. On Windows, use the extended install command in [Installation Options](#installation-options) to get CUDA-enabled PyTorch.
 
 ### Text-to-Image
 
@@ -389,7 +400,7 @@ Models download automatically on first use. If it fails:
 1. Accept the license for the model you're using at `huggingface.co/black-forest-labs`
 2. Accept the FLUX.2-dev license (shared autoencoder): https://huggingface.co/black-forest-labs/FLUX.2-dev
 3. Check your token has "gated repos" read access
-4. Re-login: `huggingface-cli login`
+4. Re-login: `hf auth login`
 
 The GUI shows a clear error message with the exact URL to visit if access is not yet granted.
 

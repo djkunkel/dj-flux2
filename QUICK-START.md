@@ -5,9 +5,20 @@
 ## Installation (2 commands)
 
 ```bash
-uv venv
-uv pip install -e .
+# Linux / macOS:
+uv venv && uv pip install -e .
+
+# Windows (CUDA) — uv tool install resolves independently from the project
+# venv, so the PyTorch CUDA index must be passed explicitly:
+uv tool install --editable . \
+  --index https://download.pytorch.org/whl/cu128 \
+  --index-strategy unsafe-best-match \
+  --reinstall-package torch \
+  --reinstall-package torchvision \
+  --reinstall-package triton-windows
 ```
+
+For local development on Windows (without global tool install), run `uv sync` after cloning — the project's `pyproject.toml` already configures the CUDA index via `[tool.uv.sources]`, so `uv run` commands work without extra flags.
 
 ## Set Up Hugging Face Access (once)
 
@@ -18,7 +29,7 @@ FLUX models are gated. Before first use:
    - https://huggingface.co/black-forest-labs/FLUX.2-dev *(shared autoencoder — required)*
 2. Login:
    ```bash
-   huggingface-cli login
+   hf auth login
    ```
 
 **FLUX models download automatically on first generate** — no separate download step needed.
@@ -137,7 +148,7 @@ uv run generate_image.py "prompt" -W 512 -H 512
 1. Accept the license for the model at `huggingface.co/black-forest-labs`
 2. Accept the FLUX.2-dev license (shared autoencoder): https://huggingface.co/black-forest-labs/FLUX.2-dev
 3. Check your HF token has "gated repos" read access
-4. Re-login: `huggingface-cli login`
+4. Re-login: `hf auth login`
 
 The GUI shows a clear error with the exact URL to visit if access hasn't been granted yet.
 
@@ -146,6 +157,7 @@ The GUI shows a clear error with the exact URL to visit if access hasn't been gr
 import torch
 print(torch.cuda.is_available())  # Should be True
 ```
+If this returns `False` on Windows after installing with `uv tool install`, you have the CPU-only torch wheel. Reinstall the tool using the Windows command in [Installation](#installation-2-commands) above — `uv tool install` ignores `pyproject.toml` index sources, so the PyTorch CUDA index must be passed explicitly on the command line.
 
 ## Next Steps
 

@@ -20,6 +20,11 @@ dependencies = [
   "accelerate>=1.0.0",
   "spandrel>=0.4.0",
   "PySide6>=6.6.0",
+  # triton has no official Windows wheels; triton-windows is the community port.
+  # It provides the same API and is required by transformers' FP8 quantization
+  # (used by the Qwen3-4B-FP8 text encoder). Not needed on Linux, which gets
+  # triton directly as a torch dependency.
+  "triton-windows>=3.6.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]
@@ -34,6 +39,21 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 python-preference = "only-managed"
+
+# On Windows, PyPI only serves CPU-only torch wheels.
+# Pull CUDA-enabled wheels from the official PyTorch index instead.
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu128", marker = "sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu128", marker = "sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.setuptools]
 # Include the main scripts as modules
