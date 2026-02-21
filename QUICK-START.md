@@ -140,7 +140,6 @@ print(torch.cuda.is_available())  # Should be True
 ## Next Steps
 
 - Read [README.md](README.md) for complete documentation
-- Read [MODS-README.md](MODS-README.md) for technical deep-dive
 - Experiment with different prompts and parameters
 - Try image-to-image transformations
 

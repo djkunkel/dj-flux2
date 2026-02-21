@@ -75,7 +75,8 @@ uv run python -c "from flux2.util import load_flow_model; print('✓ OK')"
 ### Testing AI Upscaling
 ```bash
 # Download AI upscaling models (only needed once)
-uv run download_models.py --upscale-only
+uv run download_models.py --upscale-only       # only Real-ESRGAN models
+uv run download_models.py --upscale-models     # FLUX + Real-ESRGAN models together
 
 # Test Lanczos (default, fast)
 uv run upscale_image.py -i test.png -o test_lanczos_2x.png --scale 2
@@ -129,8 +130,11 @@ def generate_image(
 - **Functions**: `snake_case` (e.g., `generate_image`, `load_model`)
 - **Variables**: `snake_case` (e.g., `model_name`, `input_image`)
 - **Constants**: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_STEPS = 4`)
-- **Classes**: `PascalCase` (none in this project - avoid adding)
-- **Private**: `_leading_underscore` (avoid in this minimal project)
+- **Classes**: `PascalCase` — several exist: `ModelCache`, `GuiState`, `GenerationWorker`,
+  `FluxGUI`, `ImagePreviewPanel`, `LeftConfigPanel`, `RightImagePanel`. Avoid adding more
+  unless genuinely necessary.
+- **Private methods/helpers**: `_leading_underscore` is used throughout the GUI classes (e.g.,
+  `_setup_ui`, `_on_mode_change`, `_upscale_realesrgan`). Keep private helpers private.
 
 ### Function Design
 - Keep functions under 50 lines where possible
@@ -161,29 +165,28 @@ if seed is None:
 ### File Organization
 ```
 Project root only:
-├── gui_generate.py      # GUI main logic (uses PySide6/Qt6)
-├── gui_components.py    # GUI UI components (UI layout separated from logic)
-├── generate_image.py    # Main inference script
-├── upscale_image.py     # Upscaling script (Lanczos + Real-ESRGAN)
-├── download_models.py   # Model downloader (keep focused)
+├── gui_generate.py      # GUI business logic: FluxGUI, GuiState, GenerationWorker
+├── gui_components.py    # GUI widget classes: ImagePreviewPanel, LeftConfigPanel,
+│                        #   RightImagePanel, open_image_file_dialog
+├── generate_image.py    # Main inference script + ModelCache singleton
+├── upscale_image.py     # Upscaling (Lanczos + Real-ESRGAN via Spandrel)
+├── download_models.py   # Model downloader (FLUX + Real-ESRGAN)
 ├── pyrightconfig.json   # IDE/LSP config pointing at flux2/src
 ├── pyproject.toml       # Dependencies and entry points
+├── CLEANUP.md           # Tracks known bugs and fixes (all items currently done)
 └── *.md                 # Documentation
 
 Do NOT add:
 - test/ directory (no test framework yet)
-- src/ directory (scripts stay in root, except gui_components.py companion)
+- src/ directory (scripts stay in root)
 - utils.py (keep code in main scripts)
-
-Note: gui_components.py is an exception - it contains UI layout code separated
-from gui_generate.py business logic for easier UI tweaking.
 ```
 
 ## Project-Specific Rules
 
 ### 1. Minimal Dependencies
 - Only add dependencies that are absolutely required
-- Currently: torch, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, spandrel, PySide6
+- Currently: torch, torchvision, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, spandrel, PySide6
 - Do NOT add: fire, click, typer, openai, realesrgan (use spandrel instead), basicsr, gradio, streamlit, PyQt6, tkinterdnd2, or other "nice-to-have" packages
 - **GUI note**: Uses PySide6 (Qt6) for professional cross-platform GUI with proper threading support
 - **Spandrel note**: Use spandrel for AI upscaling instead of realesrgan package to avoid dependency conflicts
@@ -209,6 +212,16 @@ from gui_generate.py business logic for easier UI tweaking.
 - Real-ESRGAN requires CUDA (raises `RuntimeError` if not available — do NOT `sys.exit()` from library functions)
 - Test both methods when modifying upscale code
 - Model files: `RealESRGAN_x2plus.pth` (64 MB), `RealESRGAN_x4plus.pth` (64 MB)
+
+### 3.6. Qt Widget Lifetime (GUI)
+- `RightImagePanel` owns `input_preview` and `output_preview` as persistent widgets that are
+  reused across mode switches (txt2img ↔ img2img).
+- When clearing `main_layout` during `set_mode()`, **never** call `setParent(None)` on these
+  panel widgets — that transfers ownership to Qt and schedules their C++ objects for deletion.
+  Any subsequent access raises `RuntimeError: Internal C++ object already deleted`.
+- The correct pattern: reparent persistent widgets back to `self` to keep them alive, then call
+  `deleteLater()` only on transient containers (e.g., the `QSplitter`), after rescuing the
+  panels from them first. See `gui_components.py:set_mode()` for the reference implementation.
 
 ### 4. Git Commit Style
 ```bash
@@ -269,6 +282,7 @@ class ImageMetadataManager:
 
 - **Main Docs**: README.md (user guide)
 - **Quick Start**: QUICK-START.md (rapid onboarding)
+- **Bug history**: CLEANUP.md (static analysis findings — all resolved)
 - **BFL Source**: flux2/src/flux2/ (reference only, do not modify)
 
 ---
