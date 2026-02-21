@@ -74,9 +74,8 @@ uv run python -c "from flux2.util import load_flow_model; print('✓ OK')"
 
 ### Testing AI Upscaling
 ```bash
-# Download AI upscaling models (only needed once)
-uv run download_models.py --upscale-only       # only Real-ESRGAN models
-uv run download_models.py --upscale-models     # FLUX + Real-ESRGAN models together
+# Download Real-ESRGAN models (only needed once; FLUX models auto-download on first use)
+uv run download_models.py
 
 # Test Lanczos (default, fast)
 uv run upscale_image.py -i test.png -o test_lanczos_2x.png --scale 2

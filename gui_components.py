@@ -1,7 +1,18 @@
 """UI components for FLUX.2 Klein GUI - separate UI layout from business logic"""
 
 import enum
+import sys
 from pathlib import Path
+
+# flux2/src must be on sys.path before importing FLUX2_MODEL_INFO
+_script_dir = Path(__file__).parent.resolve()
+_flux2_src = _script_dir / "flux2" / "src"
+if str(_flux2_src) not in sys.path:
+    sys.path.insert(0, str(_flux2_src))
+
+from flux2.util import FLUX2_MODEL_INFO
+from generate_image import SUPPORTED_MODELS, DEFAULT_MODEL
+
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -207,6 +218,7 @@ class LeftConfigPanel(QWidget):
 
     # --- Signals emitted by user actions ---
     mode_changed = Signal(bool)  # True = img2img, False = txt2img
+    model_changed = Signal(str)  # new model name
     browse_clicked = Signal()
     generate_clicked = Signal()
     save_clicked = Signal()
@@ -312,52 +324,65 @@ class LeftConfigPanel(QWidget):
         return group
 
     def _build_params_section(self) -> QWidget:
-        """Width, height, steps, guidance, seed controls"""
+        """Model selector, width, height, steps, guidance, seed controls"""
         group = QGroupBox("Generation Parameters")
         layout = QGridLayout()
 
+        # Model selector
+        layout.addWidget(QLabel("Model:"), 0, 0)
+        self._model_combo = QComboBox()
+        for name in SUPPORTED_MODELS:
+            # Show a short human-readable label alongside the full model key
+            info = FLUX2_MODEL_INFO[name]
+            distilled_tag = " (distilled)" if info["guidance_distilled"] else " (base)"
+            self._model_combo.addItem(name + distilled_tag, userData=name)
+        # Default to DEFAULT_MODEL
+        default_idx = SUPPORTED_MODELS.index(DEFAULT_MODEL)
+        self._model_combo.setCurrentIndex(default_idx)
+        layout.addWidget(self._model_combo, 0, 1, 1, 3)
+
         # Width
-        layout.addWidget(QLabel("Width:"), 0, 0)
+        layout.addWidget(QLabel("Width:"), 1, 0)
         self._width_combo = QComboBox()
         self._width_combo.addItems(["256", "512", "768", "1024", "1280", "1536"])
         self._width_combo.setCurrentText("512")
-        layout.addWidget(self._width_combo, 0, 1)
+        layout.addWidget(self._width_combo, 1, 1)
 
         # Height
-        layout.addWidget(QLabel("Height:"), 0, 2)
+        layout.addWidget(QLabel("Height:"), 1, 2)
         self._height_combo = QComboBox()
         self._height_combo.addItems(["256", "512", "768", "1024", "1280", "1536"])
         self._height_combo.setCurrentText("512")
-        layout.addWidget(self._height_combo, 0, 3)
+        layout.addWidget(self._height_combo, 1, 3)
 
         # Steps
-        layout.addWidget(QLabel("Steps:"), 1, 0)
+        layout.addWidget(QLabel("Steps:"), 2, 0)
         self._steps_spin = QSpinBox()
-        self._steps_spin.setRange(1, 50)
+        self._steps_spin.setRange(1, 200)
         self._steps_spin.setValue(4)
-        self._steps_spin.setToolTip(
-            "Recommended: 4 steps (Klein is a distilled model).\n"
-            "Values above 8 are slower with no quality benefit."
-        )
-        layout.addWidget(self._steps_spin, 1, 1)
+        layout.addWidget(self._steps_spin, 2, 1)
 
         # Guidance
-        layout.addWidget(QLabel("Guidance:"), 1, 2)
+        layout.addWidget(QLabel("Guidance:"), 2, 2)
         self._guidance_spin = QDoubleSpinBox()
-        self._guidance_spin.setRange(0.1, 5.0)
-        self._guidance_spin.setSingleStep(0.1)
+        self._guidance_spin.setRange(0.1, 20.0)
+        self._guidance_spin.setSingleStep(0.5)
         self._guidance_spin.setValue(1.0)
-        layout.addWidget(self._guidance_spin, 1, 3)
+        layout.addWidget(self._guidance_spin, 2, 3)
 
         # Seed
-        layout.addWidget(QLabel("Seed:"), 2, 0)
+        layout.addWidget(QLabel("Seed:"), 3, 0)
         self._seed_combo = QComboBox()
         self._seed_combo.setEditable(True)
         self._seed_combo.addItem("Random")
         self._seed_combo.setCurrentText("Random")
-        layout.addWidget(self._seed_combo, 2, 1, 1, 3)
+        layout.addWidget(self._seed_combo, 3, 1, 1, 3)
 
         group.setLayout(layout)
+
+        # Apply initial fixed-param state for the default model
+        self._apply_model_param_constraints(DEFAULT_MODEL)
+
         return group
 
     def _build_upscale_section(self) -> QWidget:
@@ -479,6 +504,9 @@ class LeftConfigPanel(QWidget):
         self._clear_btn.clicked.connect(self.clear_clicked)
         self._unload_models_btn.clicked.connect(self.unload_models_clicked)
 
+        # Model selector — apply constraints then notify FluxGUI
+        self._model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
+
         # Toggle upscale sub-controls with the checkbox
         self._upscale_check.stateChanged.connect(self._on_upscale_toggled)
 
@@ -489,6 +517,48 @@ class LeftConfigPanel(QWidget):
     def _set_upscale_sub_controls_enabled(self, enabled: bool):
         for widget in self._upscale_sub_widgets:
             widget.setEnabled(enabled)
+
+    def _on_model_combo_changed(self, index: int):
+        """Apply param constraints for the newly selected model, then notify FluxGUI."""
+        model_name = self._model_combo.itemData(index)
+        self._apply_model_param_constraints(model_name)
+        self.model_changed.emit(model_name)
+
+    def _apply_model_param_constraints(self, model_name: str):
+        """Lock or unlock steps/guidance based on the model's fixed_params.
+
+        Distilled Klein models (klein-4b, klein-9b) have both 'guidance' and
+        'num_steps' in fixed_params — changing them has no effect on output.
+        Base models leave fixed_params empty, so both controls are editable.
+
+        Always snaps both spinboxes to the model's documented defaults so the
+        user sees the correct starting values when they switch.
+        """
+        info = FLUX2_MODEL_INFO[model_name]
+        fixed = info.get("fixed_params", set())
+        defaults = info["defaults"]
+
+        # Steps
+        steps_fixed = "num_steps" in fixed
+        self._steps_spin.setValue(defaults["num_steps"])
+        self._steps_spin.setEnabled(not steps_fixed)
+        if steps_fixed:
+            self._steps_spin.setToolTip(
+                f"Fixed at {defaults['num_steps']} for {model_name} (distilled model)."
+            )
+        else:
+            self._steps_spin.setToolTip("")
+
+        # Guidance
+        guidance_fixed = "guidance" in fixed
+        self._guidance_spin.setValue(defaults["guidance"])
+        self._guidance_spin.setEnabled(not guidance_fixed)
+        if guidance_fixed:
+            self._guidance_spin.setToolTip(
+                f"Not used by {model_name} (distilled — guidance is baked in)."
+            )
+        else:
+            self._guidance_spin.setToolTip("")
 
     def _save_and_swap_prompt(self, to_img2img: bool):
         """Save the current prompt for the leaving mode and restore the arriving mode's prompt.
@@ -507,6 +577,18 @@ class LeftConfigPanel(QWidget):
     # ------------------------------------------------------------------
     # Public API used by FluxGUI
     # ------------------------------------------------------------------
+
+    def get_model_name(self) -> str:
+        """Return the currently selected model key (e.g. 'flux.2-klein-4b')"""
+        return self._model_combo.currentData()
+
+    def set_model(self, model_name: str):
+        """Select a model by name, triggering constraint updates"""
+        for i in range(self._model_combo.count()):
+            if self._model_combo.itemData(i) == model_name:
+                self._model_combo.setCurrentIndex(i)
+                return
+        raise ValueError(f"Model not found in selector: {model_name!r}")
 
     def is_img2img_mode(self) -> bool:
         """Return True if Image-to-Image mode is selected"""
@@ -529,6 +611,7 @@ class LeftConfigPanel(QWidget):
     def get_generation_params(self) -> dict:
         """Gather all generation parameters from UI controls"""
         return {
+            "model_name": self.get_model_name(),
             "prompt": self.get_prompt(),
             "width": int(self._width_combo.currentText()),
             "height": int(self._height_combo.currentText()),
@@ -595,10 +678,10 @@ class LeftConfigPanel(QWidget):
             self._prompt_text.setPlainText(self._img2img_prompt)
         else:
             self._prompt_text.setPlainText(self._txt2img_prompt)
+        # Reset model to default (triggers constraint update via signal)
+        self.set_model(DEFAULT_MODEL)
         self._width_combo.setCurrentText("512")
         self._height_combo.setCurrentText("512")
-        self._steps_spin.setValue(4)
-        self._guidance_spin.setValue(1.0)
         self._seed_combo.setCurrentText("Random")
         self._upscale_check.setChecked(False)
         self._scale_2x.setChecked(True)

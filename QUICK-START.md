@@ -9,15 +9,19 @@ uv venv
 uv pip install -e .
 ```
 
-## Download Models (once)
+## Set Up Hugging Face Access (once)
 
-```bash
-# Login to Hugging Face first
-huggingface-cli login
+FLUX models are gated. Before first use:
 
-# Then download models (~12.6 GB)
-uv run download_models.py
-```
+1. Accept the license for the model(s) you want:
+   - https://huggingface.co/black-forest-labs/FLUX.2-klein-4B *(default)*
+   - https://huggingface.co/black-forest-labs/FLUX.2-dev *(shared autoencoder — required)*
+2. Login:
+   ```bash
+   huggingface-cli login
+   ```
+
+**FLUX models download automatically on first generate** — no separate download step needed.
 
 ## Generate Images
 
@@ -90,17 +94,20 @@ The `-e` flag in `uv pip install -e .` means **editable mode**:
 ## Common Commands
 
 ```bash
-# Generate image
+# Generate image (default: Klein 4B, 512x512)
 uv run generate_image.py "your prompt here"
+
+# Use the 9B model for higher quality
+uv run generate_image.py "your prompt" -m flux.2-klein-9b
+
+# Use a base model (guidance and steps are meaningful)
+uv run generate_image.py "your prompt" -m flux.2-klein-base-4b -g 4.0 -s 50
 
 # Custom output location
 uv run generate_image.py "prompt" -o output/my_image.png
 
 # Different size
 uv run generate_image.py "prompt" -W 768 -H 512
-
-# Fewer steps (faster, lower quality)
-uv run generate_image.py "prompt" -s 2
 
 # See all options
 uv run generate_image.py --help
@@ -127,9 +134,12 @@ uv run generate_image.py "prompt" -W 512 -H 512
 ```
 
 **Models not downloading?**
-1. Accept FLUX.2-dev license: https://huggingface.co/black-forest-labs/FLUX.2-dev
-2. Check your HF token has "gated repos" access
-3. Re-login: `huggingface-cli login`
+1. Accept the license for the model at `huggingface.co/black-forest-labs`
+2. Accept the FLUX.2-dev license (shared autoencoder): https://huggingface.co/black-forest-labs/FLUX.2-dev
+3. Check your HF token has "gated repos" read access
+4. Re-login: `huggingface-cli login`
+
+The GUI shows a clear error with the exact URL to visit if access hasn't been granted yet.
 
 **GPU not being used?**
 ```python

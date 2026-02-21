@@ -1,15 +1,16 @@
 # dj-flux2
 
-Minimal FLUX.2 Klein 4B image generation with CUDA support. Fast, simple, and educational.
+Minimal FLUX.2 Klein image generation with CUDA support. Fast, simple, and educational.
 
 ## Features
 
-- 🚀 **Fast**: Sub-second generation on RTX 4070 (4-step distilled model)
+- 🚀 **Fast**: Sub-second generation on RTX 4070 (4-step distilled models)
 - 🎨 **Text-to-Image**: Generate images from text descriptions
 - 🖼️ **Image-to-Image**: Transform images with prompts
 - 🖥️ **GUI Interface**: Modern PySide6 (Qt6) app for easy experimentation
 - 🔍 **Real-time Preview**: See results side-by-side before saving
-- 💾 **Minimal**: Only ~200 lines of code + BFL submodule
+- 🤖 **Multiple Models**: Klein 4B/9B (distilled) and base variants
+- 💾 **Minimal**: Small codebase + BFL submodule
 - 🎓 **Educational**: Clear code structure for learning
 - 🔧 **CUDA Accelerated**: Runs on NVIDIA GPUs
 
@@ -54,10 +55,13 @@ pip install -e .
 
 ### Setup Hugging Face Access
 
-FLUX.2-dev requires accepting license terms:
+FLUX.2 Klein models are gated and require accepting license terms before first use:
 
 1. Create account: https://huggingface.co/join
-2. Accept license: https://huggingface.co/black-forest-labs/FLUX.2-dev
+2. Accept license for each model you want to use:
+   - https://huggingface.co/black-forest-labs/FLUX.2-klein-4B *(default)*
+   - https://huggingface.co/black-forest-labs/FLUX.2-klein-9B *(optional)*
+   - https://huggingface.co/black-forest-labs/FLUX.2-dev *(required for the shared autoencoder)*
 3. Create token: https://huggingface.co/settings/tokens
    - Enable: "Read access to contents of all public gated repos"
 4. Login:
@@ -65,7 +69,11 @@ FLUX.2-dev requires accepting license terms:
    huggingface-cli login
    ```
 
-### Download Models
+**FLUX models download automatically on first use** — no manual download step required. The first generation will take a few minutes longer while weights are fetched from HuggingFace to `~/.cache/huggingface/hub/`.
+
+### Download Real-ESRGAN Models (optional)
+
+Real-ESRGAN upscaling weights are not on HuggingFace and must be downloaded separately before using `--upscale-method realesrgan`:
 
 ```bash
 # If installed as a tool:
@@ -73,21 +81,11 @@ dj-flux2-download
 
 # If using local development setup:
 uv run download_models.py
-# Or: python download_models.py
-
-# Optional: Download AI upscaling models for Real-ESRGAN
-dj-flux2-download --upscale-only
-# Or: uv run download_models.py --upscale-only
 ```
 
-This downloads:
-- **FLUX models** (~12.6 GB):
-  - FLUX.2 Klein 4B transformer (7.4 GB)
-  - Qwen3-4B-FP8 text encoder (4.9 GB)
-  - FLUX.2-dev autoencoder (321 MB)
-- **Optional AI upscaling models** (~128 MB):
-  - Real-ESRGAN 2x model (64 MB)
-  - Real-ESRGAN 4x model (64 MB)
+This downloads (~128 MB total) to `models/realesrgan/`:
+- Real-ESRGAN 2x model (64 MB)
+- Real-ESRGAN 4x model (64 MB)
 
 ### Generate Your First Image
 
@@ -122,9 +120,13 @@ uv run gui_generate.py
 **The GUI provides:**
 - **Two modes**: Text-to-Image and Image-to-Image
 - **Side-by-side preview**: See input and output images together (img2img mode)
+- **Auto-load workflow**: Switch to img2img and the last generated image loads as input automatically
+- **Per-mode prompts**: Separate prompt history for txt2img and img2img — switching modes never clears your work
+- **Model selector**: Choose between Klein 4B, 9B, base-4B, and base-9B; guidance/steps grey out automatically for distilled models
 - **All parameters**: Prompt, width, height, steps, guidance, seed
 - **Upscaling support**: Optional Lanczos or Real-ESRGAN upscaling
 - **Model caching**: First generation loads models (~15-25s), subsequent generations are 5-10x faster (2-5s)
+- **Auto-download**: Models download automatically on first use with clear error messages if access is not yet granted
 - **Memory management**: Smart VRAM handling prevents out-of-memory errors
 - **Easy experimentation**: Adjust parameters and regenerate instantly
 - **Save when ready**: Only save images you like
@@ -266,12 +268,17 @@ dj-flux2-download --help
 ```
 Options:
   prompt              Text prompt (required)
+  -m, --model         Model to use (default: flux.2-klein-4b)
+                        flux.2-klein-4b       4B distilled (fast, steps/guidance fixed)
+                        flux.2-klein-9b       9B distilled (higher quality)
+                        flux.2-klein-base-4b  4B base (guidance meaningful, ~50 steps)
+                        flux.2-klein-base-9b  9B base
   -i, --input         Input image for img2img
   -o, --output        Output path (default: output.png)
   -W, --width         Width in pixels (default: 512)
   -H, --height        Height in pixels (default: 512)
-  -s, --steps         Denoising steps (default: 4)
-  -g, --guidance      Guidance scale (default: 1.0)
+  -s, --steps         Denoising steps (default: model default)
+  -g, --guidance      Guidance scale (default: model default; ignored for distilled models)
   -S, --seed          Random seed for reproducibility
   --upscale           Upscale output by 2x or 4x (uses AI by default)
   --upscale-method    realesrgan (AI, default) or lanczos (fast, CPU)
@@ -338,10 +345,15 @@ This makes the GUI perfect for iterative workflows where you generate multiple i
 ## Architecture
 
 ```
-Text Prompt → Qwen3-4B → FLUX.2 Klein 4B → VAE Decoder → Image
-                ↑              ↑
-            (4.9 GB)       (7.4 GB)
+Text Prompt → Qwen3 encoder → FLUX.2 Klein transformer → VAE Decoder → Image
+                   ↑                      ↑
+          4B: Qwen3-4B-FP8       4B: 7.4 GB transformer
+          9B: Qwen3-8B-FP8       9B: larger transformer
 ```
+
+**Distilled models** (klein-4b, klein-9b): guidance scale is baked into the weights — the parameter has no effect. Steps and guidance are fixed at 4 and 1.0 respectively. The GUI greys these controls out automatically.
+
+**Base models** (klein-base-4b, klein-base-9b): use classifier-free guidance (two forward passes per step). Guidance and steps are fully meaningful; defaults are 4.0 and 50.
 
 The VRAM choreography keeps at most one large model on GPU at a time: the text encoder and autoencoder are swapped to CPU during the transformer's denoising pass, then the transformer returns to CPU before the autoencoder decodes the result.
 
@@ -372,9 +384,14 @@ print(torch.cuda.is_available())
 
 ### Model Download Fails
 
-1. Accept FLUX.2-dev license
-2. Check token has gated repo access
-3. Re-login: `huggingface-cli login`
+Models download automatically on first use. If it fails:
+
+1. Accept the license for the model you're using at `huggingface.co/black-forest-labs`
+2. Accept the FLUX.2-dev license (shared autoencoder): https://huggingface.co/black-forest-labs/FLUX.2-dev
+3. Check your token has "gated repos" read access
+4. Re-login: `huggingface-cli login`
+
+The GUI shows a clear error message with the exact URL to visit if access is not yet granted.
 
 ## Learning Resources
 
@@ -389,7 +406,7 @@ dj-flux2/
 ├── gui_generate.py        # GUI application logic (PySide6/Qt6)
 ├── gui_components.py      # GUI widget layout
 ├── upscale_image.py       # Lanczos and Real-ESRGAN upscaling
-├── download_models.py     # Model download automation
+├── download_models.py     # Real-ESRGAN model downloader (FLUX models auto-download)
 ├── flux2/                 # BFL submodule (git, do not modify)
 │   └── src/flux2/         # Core FLUX.2 architecture code
 ├── pyrightconfig.json     # IDE/LSP config (resolves flux2 imports)

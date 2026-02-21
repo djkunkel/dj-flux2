@@ -4,6 +4,7 @@
 import sys
 import os
 import gc
+import shutil
 from pathlib import Path
 import tempfile
 from datetime import datetime
@@ -39,6 +40,7 @@ from upscale_image import upscale_image
 class GenerationParams(TypedDict):
     """All parameters passed from the UI to the GenerationWorker thread"""
 
+    model_name: str
     prompt: str
     width: int
     height: int
@@ -52,29 +54,54 @@ class GenerationParams(TypedDict):
 
 
 class GuiState:
-    """Container for mutable GUI state"""
+    """Container for mutable GUI state.
+
+    Temp files are written into a private session directory that lives for the
+    lifetime of the application.  Files are never deleted individually during a
+    session — the whole directory is removed on explicit Clear or on app exit.
+    This prevents the img2img workflow from losing its input file mid-session.
+    """
 
     def __init__(self):
         self.input_image_path: Optional[str] = None
         self.generated_image_path: Optional[str] = None
-        self.previous_temp_file: Optional[str] = None
         self.current_seed: Optional[int] = None
         self.worker: Optional[QThread] = None
+        # Private temp directory for this session — created lazily on first use
+        self._session_dir: Optional[str] = None
+
+    @property
+    def session_dir(self) -> str:
+        """Return (creating if needed) the session-scoped temp directory."""
+        if self._session_dir is None or not os.path.isdir(self._session_dir):
+            self._session_dir = tempfile.mkdtemp(prefix="flux_gui_session_")
+        return self._session_dir
+
+    def new_temp_path(self, suffix: str = ".png") -> str:
+        """Return a path for a new temp file inside the session directory."""
+        fd, path = tempfile.mkstemp(suffix=suffix, dir=self.session_dir)
+        os.close(fd)
+        return path
 
     def reset_images(self):
-        """Reset image-related state"""
+        """Delete all session temp files and reset image-related state."""
+        self._purge_session_dir()
         self.input_image_path = None
         self.generated_image_path = None
         self.current_seed = None
 
-    def cleanup_temp_file(self, filepath: Optional[str] = None):
-        """Safely delete a temp file"""
-        target = filepath if filepath else self.previous_temp_file
-        if target and os.path.exists(target):
+    def cleanup(self):
+        """Full cleanup on app exit — remove the session directory."""
+        self._purge_session_dir()
+
+    def _purge_session_dir(self):
+        """Delete the session temp directory and all files inside it."""
+        if self._session_dir and os.path.isdir(self._session_dir):
             try:
-                os.remove(target)
+                shutil.rmtree(self._session_dir)
             except Exception:
-                pass  # Silently ignore cleanup errors
+                pass
+        self._session_dir = None
 
 
 class GenerationWorker(QThread):
@@ -84,54 +111,120 @@ class GenerationWorker(QThread):
     progress = Signal(str, str)  # message, color
     finished = Signal(str, object)  # image_path, seed
     error = Signal(str)  # error_message
+    oom_occurred = Signal()  # fired when torch.cuda.OutOfMemoryError is raised
 
-    def __init__(self, params: GenerationParams):
+    def __init__(self, params: GenerationParams, state: "GuiState"):
         super().__init__()
         self.params = params
+        self._state = state
 
     def run(self):
-        """Run generation in background thread"""
-        try:
-            # Create temp output path
-            temp_fd, temp_path = tempfile.mkstemp(suffix=".png", prefix="flux_gui_")
-            os.close(temp_fd)
+        """Run generation in background thread.
 
-            # Generate image
+        Error handling is split into two phases so we can give targeted messages:
+
+        Phase 1 — model loading: catches SystemExit (from sys.exit() calls buried
+        inside the flux2 submodule when a repo is inaccessible) and GatedRepoError
+        (HuggingFace license-gate) before they can kill the process or produce an
+        unhelpful traceback.
+
+        Phase 2 — inference + upscale: catches all other exceptions and surfaces
+        them as a generic generation error.
+
+        Temp files are written into the session directory (GuiState.session_dir)
+        and are never deleted by the worker.  The main thread owns their lifetime:
+        they persist until the user clicks Clear or the app exits.  This ensures
+        the img2img source image is never deleted mid-session.
+        """
+        try:
+            # ---- Phase 1: model loading ----
+            self.progress.emit("Loading models...", "orange")
+            try:
+                from huggingface_hub.errors import (
+                    GatedRepoError,
+                    RepositoryNotFoundError,
+                )
+                from generate_image import model_cache, AE_MODEL_NAME
+                import torch
+
+                device = torch.device("cuda")
+                model_cache.load_models(
+                    self.params["model_name"], AE_MODEL_NAME, device
+                )
+            except GatedRepoError:
+                model_name = self.params["model_name"]
+                repo = f"black-forest-labs/{model_name.replace('flux.2-', 'FLUX.2-')}"
+                self.error.emit(
+                    f"Access to {model_name!r} is restricted.\n\n"
+                    f"You need to accept the license agreement before downloading:\n"
+                    f"https://huggingface.co/{repo}\n\n"
+                    f"Log in with 'huggingface-cli login' if you haven't already."
+                )
+                return
+            except RepositoryNotFoundError:
+                model_name = self.params["model_name"]
+                self.error.emit(
+                    f"Repository for {model_name!r} was not found.\n\n"
+                    f"Check your internet connection and HuggingFace login."
+                )
+                return
+            except SystemExit:
+                model_name = self.params["model_name"]
+                self.error.emit(
+                    f"Could not load {model_name!r}.\n\n"
+                    f"This usually means the model repository is inaccessible. "
+                    f"Check that you have accepted the license at:\n"
+                    f"https://huggingface.co/black-forest-labs\n\n"
+                    f"Also verify your internet connection and HuggingFace login "
+                    f"('huggingface-cli login')."
+                )
+                return
+
+            # ---- Phase 2: inference + optional upscale ----
+            # All output paths live inside the session directory and are kept
+            # alive until Clear / app exit — never deleted here in the worker.
+            out_path = self._state.new_temp_path(suffix=".png")
+
             self.progress.emit("Generating image...", "orange")
             actual_seed = generate_image(
                 prompt=self.params["prompt"],
-                output_path=temp_path,
+                output_path=out_path,
                 input_image=self.params["input_image"],
                 width=self.params["width"],
                 height=self.params["height"],
                 num_steps=self.params["steps"],
                 guidance=self.params["guidance"],
                 seed=self.params["seed"],
+                model_name=self.params["model_name"],
             )
 
-            # Optionally upscale
-            final_path = temp_path
+            final_path = out_path
             if self.params["do_upscale"]:
                 self.progress.emit("Upscaling...", "orange")
-
-                upscaled_fd, upscaled_path = tempfile.mkstemp(
-                    suffix=".png", prefix="flux_gui_upscaled_"
-                )
-                os.close(upscaled_fd)
-
+                upscaled_path = self._state.new_temp_path(suffix=".png")
                 upscale_image(
-                    input_path=temp_path,
+                    input_path=out_path,
                     output_path=upscaled_path,
                     scale=self.params["upscale_scale"],
                     method=self.params["upscale_method"],
                 )
-
-                # Clean up non-upscaled temp file
-                os.remove(temp_path)
                 final_path = upscaled_path
 
             self.finished.emit(final_path, actual_seed)
 
+        except SystemExit:
+            self.error.emit(
+                "The generation process exited unexpectedly.\n\n"
+                "A required model file may be inaccessible. "
+                "Check your internet connection and HuggingFace login."
+            )
+        except torch.cuda.OutOfMemoryError as e:
+            self.error.emit(
+                f"Out of GPU memory: {e}\n\n"
+                "Models have been unloaded. Try a smaller resolution, or switch "
+                "to a lighter model (e.g. flux.2-klein-4b)."
+            )
+            self.oom_occurred.emit()
         except Exception as e:
             self.error.emit(str(e))
 
@@ -175,6 +268,7 @@ class FluxGUI(QMainWindow):
     def _connect_signals(self):
         """Connect LeftConfigPanel signals to FluxGUI handlers"""
         self.left_panel.mode_changed.connect(self._on_mode_change)
+        self.left_panel.model_changed.connect(self._on_model_change)
         self.left_panel.browse_clicked.connect(self._browse_input_image)
         self.left_panel.generate_clicked.connect(self._generate_image)
         self.left_panel.save_clicked.connect(self._save_image)
@@ -217,6 +311,16 @@ class FluxGUI(QMainWindow):
             self.right_panel.input_preview.clear()
             # Keep the output preview intact so the user can still see the last result
 
+    def _on_model_change(self, model_name: str):
+        """Unload cached models immediately when the user selects a different model.
+
+        This frees VRAM right away rather than waiting until the next Generate,
+        and ensures the status indicator stays accurate.
+        """
+        if model_cache.is_loaded():
+            model_cache.clear()
+            self.left_panel.update_model_status(False)
+
     def _load_input_image(self, filepath: str):
         """Set filepath as the active input image and update the UI.
 
@@ -247,16 +351,12 @@ class FluxGUI(QMainWindow):
             QMessageBox.critical(self, "Error", error_msg)
             return
 
-        # Clean up previous generation temp file
-        if self.state.previous_temp_file:
-            self.state.cleanup_temp_file()
-            self.state.previous_temp_file = None
-
         # Stop any still-running worker to prevent concurrent GPU access
         if self.state.worker is not None:
             self.state.worker.progress.disconnect()
             self.state.worker.finished.disconnect()
             self.state.worker.error.disconnect()
+            self.state.worker.oom_occurred.disconnect()
             self.state.worker.quit()
             self.state.worker.wait()
             self.state.worker.deleteLater()
@@ -272,10 +372,11 @@ class FluxGUI(QMainWindow):
             self.state.input_image_path if self.left_panel.is_img2img_mode() else None
         )
 
-        self.state.worker = GenerationWorker(params)
+        self.state.worker = GenerationWorker(params, self.state)
         self.state.worker.progress.connect(self._on_progress)
         self.state.worker.finished.connect(self._on_generation_complete)
         self.state.worker.error.connect(self._on_generation_error)
+        self.state.worker.oom_occurred.connect(self._on_oom)
         self.state.worker.start()
 
     def _on_progress(self, message: str, color: str):
@@ -286,7 +387,6 @@ class FluxGUI(QMainWindow):
 
     def _on_generation_complete(self, image_path: str, seed):
         """Handle successful generation"""
-        self.state.previous_temp_file = self.state.generated_image_path
         self.state.generated_image_path = image_path
         self.state.current_seed = seed
 
@@ -317,6 +417,32 @@ class FluxGUI(QMainWindow):
         QMessageBox.critical(
             self, "Generation Error", f"Failed to generate image:\n\n{error_msg}"
         )
+
+    def _on_oom(self):
+        """Handle GPU out-of-memory: flush cache and reset preview state.
+
+        OOM leaves CUDA in a dirty state — unreleased tensors, fragmented
+        allocator, and a model that may be partially on GPU. Clearing the
+        model cache here forces a clean reload on the next generation attempt,
+        and resetting generated_image_path prevents stale file references from
+        reaching display_image() on the next successful run.
+        """
+        import torch
+
+        # Flush any CUDA allocations left behind by the failed inference pass
+        torch.cuda.empty_cache()
+
+        # Force-unload models — their GPU state is unknown after OOM
+        if model_cache.is_loaded():
+            model_cache.clear()
+        self.left_panel.update_model_status(False)
+
+        # Drop the stale path reference so the next success starts fresh
+        self.state.generated_image_path = None
+
+        # Clear the output preview — the last displayed image's temp file
+        # may have been deleted by the worker's finally block
+        self.right_panel.output_preview.clear()
 
     def _save_image(self):
         """Save generated image to user-selected location"""
@@ -359,44 +485,21 @@ class FluxGUI(QMainWindow):
         if model_cache.is_loaded():
             model_cache.clear()
             self.left_panel.update_model_status(False)
-            QMessageBox.information(
-                self,
-                "Models Unloaded",
-                "Models have been unloaded. Memory has been freed.\n\n"
-                "They will be reloaded automatically on next generation.",
-            )
-        else:
-            QMessageBox.information(self, "Info", "Models are not currently loaded")
 
     def _clear(self):
-        """Reset the form and previews; temp files are deleted but models stay loaded"""
+        """Reset the form, previews, and session temp files. Models stay loaded."""
         self.left_panel.reset_to_defaults()
-
-        # Delete temp files BEFORE resetting state — reset_images() clears the
-        # path references, so file deletion must happen first or the files leak.
-        if self.state.generated_image_path and os.path.exists(
-            self.state.generated_image_path
-        ):
-            try:
-                os.remove(self.state.generated_image_path)
-            except Exception:
-                pass
-
-        if self.state.previous_temp_file:
-            self.state.cleanup_temp_file()
-            self.state.previous_temp_file = None
-
-        # Now safe to clear state (paths already used above)
+        # reset_images() purges the session temp directory and clears path refs
         self.state.reset_images()
-
         self.right_panel.clear_previews()
         gc.collect()
 
     def closeEvent(self, event):
-        """Ensure the worker thread is stopped before the window closes"""
+        """Stop the worker thread and clean up session temp files on exit."""
         if self.state.worker is not None and self.state.worker.isRunning():
             self.state.worker.quit()
             self.state.worker.wait()
+        self.state.cleanup()
         event.accept()
 
 

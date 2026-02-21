@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Simple image generation script for FLUX.2 Klein 4B with CUDA support"""
+"""Simple image generation script for FLUX.2 Klein models with CUDA support"""
 
 import argparse
 import gc
@@ -21,22 +21,25 @@ from flux2.sampling import (
     batched_prc_txt,
     batched_prc_img,
     denoise,
+    denoise_cfg,
     get_schedule,
     scatter_ids,
     encode_image_refs,
 )
 
-# Model configuration from FLUX2_MODEL_INFO (flux2 submodule)
-# This provides model-specific defaults and configuration
-MODEL_NAME = "flux.2-klein-4b"
-MODEL_INFO = FLUX2_MODEL_INFO[MODEL_NAME]
+# The four Klein variants this tool supports.
+# flux.2-dev is excluded: it requires the Mistral-Small-3.2-24B text encoder
+# (~24 GB VRAM for the encoder alone) — a completely different hardware tier.
+SUPPORTED_MODELS = [
+    "flux.2-klein-4b",
+    "flux.2-klein-9b",
+    "flux.2-klein-base-4b",
+    "flux.2-klein-base-9b",
+]
 
-# Extract default values for this model
-DEFAULT_STEPS = MODEL_INFO["defaults"]["num_steps"]  # 4
-DEFAULT_GUIDANCE = MODEL_INFO["defaults"]["guidance"]  # 1.0
+DEFAULT_MODEL = "flux.2-klein-4b"
 
-# Note: All FLUX models share the flux.2-dev autoencoder
-# Klein models don't have ae.safetensors in their repos - this is expected per BFL's design
+# All Klein variants share the flux.2-dev autoencoder weights.
 AE_MODEL_NAME = "flux.2-dev"
 
 
@@ -65,13 +68,19 @@ class ModelCache:
         """Load models if not cached, return cached models
 
         Args:
-            model_name: Name of the main FLUX model
+            model_name: Name of the main FLUX model (must be in SUPPORTED_MODELS)
             ae_model_name: Name of the autoencoder model
             device: Target device (typically 'cuda')
 
         Returns:
             Dictionary with 'text_encoder', 'model', and 'ae' keys
         """
+        if model_name not in SUPPORTED_MODELS:
+            raise ValueError(
+                f"Unsupported model: {model_name!r}. "
+                f"Choose from: {', '.join(SUPPORTED_MODELS)}"
+            )
+
         # If already loaded with same model names, return cached
         if (
             self._models
@@ -81,7 +90,7 @@ class ModelCache:
             print("Using cached models (fast path)")
             return self._models
 
-        # Different model or first load
+        # Different model or first load — clear first
         if self._models:
             print("Clearing old models...")
             self.clear()
@@ -112,18 +121,15 @@ class ModelCache:
     def clear(self):
         """Unload models and free GPU/RAM"""
         if self._models:
-            # Move to CPU first to free VRAM
             for name, model in self._models.items():
                 if hasattr(model, "cpu"):
                     model.cpu()
 
-            # Delete references
             del self._models
             self._models = None
             self._model_name = None
             self._ae_model_name = None
 
-            # Force cleanup
             torch.cuda.empty_cache()
             gc.collect()
 
@@ -153,11 +159,12 @@ def generate_image(
     input_image: str = None,
     width: int = 512,
     height: int = 512,
-    num_steps: int = DEFAULT_STEPS,
-    guidance: float = DEFAULT_GUIDANCE,
+    num_steps: int = None,
+    guidance: float = None,
     seed: int = None,
+    model_name: str = DEFAULT_MODEL,
 ) -> int:
-    """Generate an image using FLUX.2 Klein 4B
+    """Generate an image using a FLUX.2 Klein model.
 
     Args:
         prompt: Text description of the image to generate
@@ -165,29 +172,44 @@ def generate_image(
         input_image: Optional input image path for image-to-image generation
         width: Image width in pixels (must be multiple of 16)
         height: Image height in pixels (must be multiple of 16)
-        num_steps: Number of denoising steps (4 is recommended for Klein)
-        guidance: Guidance scale (1.0 is recommended for Klein)
+        num_steps: Number of denoising steps (None = model default)
+        guidance: Guidance scale (None = model default; ignored for distilled models)
         seed: Random seed for reproducibility (None for random)
+        model_name: Which Klein model to use (must be in SUPPORTED_MODELS)
 
     Returns:
         The seed used for generation (either provided or randomly generated)
     """
-    model_name = MODEL_NAME
+    if model_name not in SUPPORTED_MODELS:
+        raise ValueError(
+            f"Unsupported model: {model_name!r}. "
+            f"Choose from: {', '.join(SUPPORTED_MODELS)}"
+        )
+
+    model_info = FLUX2_MODEL_INFO[model_name]
+    defaults = model_info["defaults"]
+    is_distilled = model_info["guidance_distilled"]
+
+    # Apply model defaults for unspecified parameters
+    if num_steps is None:
+        num_steps = defaults["num_steps"]
+    if guidance is None:
+        guidance = defaults["guidance"]
 
     if seed is None:
         seed = torch.randint(0, 2**32, (1,)).item()
 
     mode = "Image-to-Image" if input_image else "Text-to-Image"
-    print(f"FLUX.2 Klein 4B - {mode}")
+    print(f"{model_name} - {mode}")
     print(f"Prompt: {prompt}")
     if input_image:
         print(f"Input: {input_image}")
     print(
-        f"Size: {width}x{height}, Steps: {num_steps}, Guidance: {guidance}, Seed: {seed}"
+        f"Size: {width}x{height}, Steps: {num_steps}, "
+        f"Guidance: {guidance}{'(fixed)' if is_distilled else ''}, Seed: {seed}"
     )
     print()
 
-    # Clear CUDA cache
     if not torch.cuda.is_available():
         raise RuntimeError(
             "CUDA GPU not found. FLUX.2 Klein requires a CUDA-capable GPU.\n"
@@ -202,8 +224,8 @@ def generate_image(
     model = models["model"]
     ae = models["ae"]
 
-    # VRAM management: Move models to optimal devices for this generation
-    # Strategy: Never have all 3 models on GPU simultaneously to avoid OOM
+    # VRAM management: Move models to optimal devices for this generation.
+    # Strategy: Never have all 3 models on GPU simultaneously to avoid OOM.
     text_encoder = text_encoder.to(device)
     ae = ae.to(device)
     model = model.cpu()  # Keep on CPU until after text encoding
@@ -211,8 +233,15 @@ def generate_image(
 
     print(f"\nGenerating {mode.lower()}...")
     with torch.no_grad():
-        # Encode prompt
-        ctx = text_encoder([prompt]).to(torch.bfloat16)
+        # Encode prompt.
+        # Distilled models use a single conditional context.
+        # Base models use CFG: concatenate empty + prompt contexts for two-pass denoising.
+        if is_distilled:
+            ctx = text_encoder([prompt]).to(torch.bfloat16)
+        else:
+            ctx_empty = text_encoder([""]).to(torch.bfloat16)
+            ctx_prompt = text_encoder([prompt]).to(torch.bfloat16)
+            ctx = torch.cat([ctx_empty, ctx_prompt], dim=0)
         ctx, ctx_ids = batched_prc_txt(ctx)
 
         # Encode reference image if provided
@@ -223,14 +252,14 @@ def generate_image(
             img_ctx = [Image.open(input_image)]
             ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
-        # Move text encoder and ae to CPU to free VRAM for transformer
+        # Move text encoder and ae to CPU to free VRAM for transformer.
         # ae is no longer needed until decode; freeing it gives the transformer
-        # the headroom it needs on cards with ~12 GB VRAM
+        # the headroom it needs on cards with ~12 GB VRAM.
         text_encoder = text_encoder.cpu()
         ae = ae.cpu()
         torch.cuda.empty_cache()
 
-        # Move transformer model to GPU (text encoder and ae are now off GPU)
+        # Move transformer to GPU
         model = model.to(device)
 
         # Create noise
@@ -241,22 +270,37 @@ def generate_image(
         )
         x, x_ids = batched_prc_img(randn)
 
-        # Denoise with optional reference image conditioning
         timesteps = get_schedule(num_steps, x.shape[1])
-        x = denoise(
-            model,
-            x,
-            x_ids,
-            ctx,
-            ctx_ids,
-            timesteps=timesteps,
-            guidance=guidance,
-            img_cond_seq=ref_tokens,
-            img_cond_seq_ids=ref_ids,
-        )
 
-        # Move transformer back to CPU, bring ae back for decode
-        # Never have model + ae on GPU simultaneously
+        # Distilled models: single-pass denoising with baked-in guidance embedding.
+        # Base models: classifier-free guidance (two forward passes per step).
+        if is_distilled:
+            x = denoise(
+                model,
+                x,
+                x_ids,
+                ctx,
+                ctx_ids,
+                timesteps=timesteps,
+                guidance=guidance,
+                img_cond_seq=ref_tokens,
+                img_cond_seq_ids=ref_ids,
+            )
+        else:
+            x = denoise_cfg(
+                model,
+                x,
+                x_ids,
+                ctx,
+                ctx_ids,
+                timesteps=timesteps,
+                guidance=guidance,
+                img_cond_seq=ref_tokens,
+                img_cond_seq_ids=ref_ids,
+            )
+
+        # Move transformer back to CPU, bring ae back for decode.
+        # Never have model + ae on GPU simultaneously.
         model = model.cpu()
         ae = ae.to(device)
         torch.cuda.empty_cache()
@@ -271,7 +315,7 @@ def generate_image(
     img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
 
     # ae stays on GPU (small, ~0.2 GB); VRAM is free for next generation's
-    # text_encoder phase. Explicit cache clear to release any intermediate tensors.
+    # text_encoder phase. Explicit cache clear to release intermediate tensors.
     torch.cuda.empty_cache()
 
     # Save with metadata
@@ -279,7 +323,7 @@ def generate_image(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     exif_data = Image.Exif()
-    model_display_name = MODEL_INFO["repo_id"].split("/")[-1]
+    model_display_name = model_info["repo_id"].split("/")[-1]
     exif_data[ExifTags.Base.Software] = f"FLUX.2 {model_display_name}"
     exif_data[ExifTags.Base.Make] = "Black Forest Labs"
     desc = f"Prompt: {prompt} | Seed: {seed}"
@@ -296,26 +340,45 @@ def generate_image(
 
 
 def main():
+    # Build the default steps help string dynamically from model defaults
+    default_steps_per_model = {
+        m: FLUX2_MODEL_INFO[m]["defaults"]["num_steps"] for m in SUPPORTED_MODELS
+    }
+    steps_help = "Number of denoising steps. Defaults: " + ", ".join(
+        f"{m}={s}" for m, s in default_steps_per_model.items()
+    )
+
+    default_guidance_per_model = {
+        m: FLUX2_MODEL_INFO[m]["defaults"]["guidance"] for m in SUPPORTED_MODELS
+    }
+    guidance_help = (
+        "Guidance scale. Ignored for distilled models (klein-4b, klein-9b). Defaults: "
+        + ", ".join(f"{m}={g}" for m, g in default_guidance_per_model.items())
+    )
+
     parser = argparse.ArgumentParser(
-        description="Generate images with FLUX.2 Klein 4B",
+        description="Generate images with FLUX.2 Klein models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Text-to-image (default 512x512)
+  # Text-to-image (default 512x512, Klein 4B)
   python generate_image.py "a cute cat"
-  
-  # Native high resolution (if you have VRAM)
+
+  # Use the base model (guidance is meaningful here)
+  python generate_image.py "a mountain" -m flux.2-klein-base-4b -g 4.0
+
+  # Native high resolution
   python generate_image.py "a mountain" -W 1024 -H 1024
-  
-  # 512x512 + AI upscaling to 1024x1024 (default when using --upscale)
+
+  # 512x512 + AI upscaling to 1024x1024
   python generate_image.py "a mountain" --upscale 2
-  
+
   # Use Lanczos for faster CPU-based upscaling
   python generate_image.py "a mountain" --upscale 2 --upscale-method lanczos
-  
+
   # Image-to-image
   python generate_image.py "oil painting" -i photo.jpg -o art.png
-  
+
   # 4x AI upscale to 2048x2048
   python generate_image.py "detailed scene" --upscale 4
 """,
@@ -336,6 +399,14 @@ Examples:
         help="Input image for image-to-image transformation",
     )
     parser.add_argument(
+        "-m",
+        "--model",
+        type=str,
+        default=DEFAULT_MODEL,
+        choices=SUPPORTED_MODELS,
+        help=f"Model to use (default: {DEFAULT_MODEL})",
+    )
+    parser.add_argument(
         "-W", "--width", type=int, default=512, help="Image width (default: 512)"
     )
     parser.add_argument(
@@ -345,15 +416,15 @@ Examples:
         "-s",
         "--steps",
         type=int,
-        default=DEFAULT_STEPS,
-        help=f"Number of steps (default: {DEFAULT_STEPS})",
+        default=None,
+        help=steps_help,
     )
     parser.add_argument(
         "-g",
         "--guidance",
         type=float,
-        default=DEFAULT_GUIDANCE,
-        help=f"Guidance scale (default: {DEFAULT_GUIDANCE})",
+        default=None,
+        help=guidance_help,
     )
     parser.add_argument(
         "-S", "--seed", type=int, default=None, help="Random seed (default: random)"
@@ -375,26 +446,24 @@ Examples:
 
     args = parser.parse_args()
 
-    # If upscaling, generate to a temp file first, then upscale to final output
+    generate_kwargs = dict(
+        prompt=args.prompt,
+        input_image=args.input,
+        width=args.width,
+        height=args.height,
+        num_steps=args.steps,  # None → model default applied inside generate_image()
+        guidance=args.guidance,  # None → model default applied inside generate_image()
+        seed=args.seed,
+        model_name=args.model,
+    )
+
     if args.upscale:
-        # Create temp file for intermediate image
         temp_fd, temp_path = tempfile.mkstemp(suffix=".png", prefix="flux_temp_")
-        os.close(temp_fd)  # Close file descriptor, we just need the path
+        os.close(temp_fd)
 
         try:
-            # Generate to temp file
-            generate_image(
-                prompt=args.prompt,
-                output_path=temp_path,
-                input_image=args.input,
-                width=args.width,
-                height=args.height,
-                num_steps=args.steps,
-                guidance=args.guidance,
-                seed=args.seed,
-            )
+            generate_image(output_path=temp_path, **generate_kwargs)
 
-            # Upscale temp file to final output
             method_name = (
                 "Real-ESRGAN (AI)" if args.upscale_method == "realesrgan" else "Lanczos"
             )
@@ -408,28 +477,16 @@ Examples:
                 scale=args.upscale,
                 method=args.upscale_method,
             )
-
             print(f"✓ Final upscaled image: {args.output}")
 
         except Exception as e:
             print(f"Error during upscaling: {e}")
             raise
         finally:
-            # Clean up temp file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
     else:
-        # No upscaling, generate directly to output
-        generate_image(
-            prompt=args.prompt,
-            output_path=args.output,
-            input_image=args.input,
-            width=args.width,
-            height=args.height,
-            num_steps=args.steps,
-            guidance=args.guidance,
-            seed=args.seed,
-        )
+        generate_image(output_path=args.output, **generate_kwargs)
 
 
 if __name__ == "__main__":
