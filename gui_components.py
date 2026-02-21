@@ -503,19 +503,29 @@ class RightImagePanel(QWidget):
 
         self._current_mode = is_img2img
 
-        # Clear current layout, explicitly deleting any sub-layouts (e.g. the
-        # QHBoxLayout created for img2img mode) so they don't leak.
+        # Clear current layout contents.  The two persistent panel widgets
+        # (input_preview / output_preview) must NOT be reparented to None —
+        # that schedules their underlying C++ objects for deletion, which
+        # causes "Internal C++ object already deleted" errors the next time
+        # they are accessed.  Instead we reparent them back to `self` to keep
+        # them alive, and only schedule the transient QSplitter for deletion.
         while self.main_layout.count():
             item = self.main_layout.takeAt(0)
-            if item.widget():
-                item.widget().setParent(None)
-            elif item.layout():
-                sub = item.layout()
-                while sub.count():
-                    sub_item = sub.takeAt(0)
-                    if sub_item.widget():
-                        sub_item.widget().setParent(None)
-                sub.deleteLater()
+            widget = item.widget() if item else None
+            if widget is None:
+                continue
+            if widget is self.input_preview or widget is self.output_preview:
+                # Persistent panel — keep alive, just detach from layout
+                widget.setParent(self)
+            else:
+                # Transient container (e.g. QSplitter) — destroy it, but first
+                # remove the panel widgets so they are not destroyed with it.
+                if hasattr(widget, "count"):
+                    for i in range(widget.count()):
+                        child = widget.widget(i)
+                        if child is self.input_preview or child is self.output_preview:
+                            child.setParent(self)
+                widget.deleteLater()
 
         if is_img2img:
             # Side-by-side splitter for img2img — always divides space equally
