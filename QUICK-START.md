@@ -20,6 +20,12 @@ uv tool install --editable . \
 
 For local development on Windows (without global tool install), run `uv sync` after cloning — the project's `pyproject.toml` already configures the CUDA index via `[tool.uv.sources]`, so `uv run` commands work without extra flags.
 
+**AMD GPU (ROCm, Linux only):** After the Linux install, swap in the ROCm torch wheel:
+```bash
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
+```
+Supported GPUs: RX 6000/7000/9000 series (RDNA 2+). No code changes required. See README.md for details.
+
 ## Set Up Hugging Face Access (once)
 
 FLUX models are gated. Before first use:
@@ -127,8 +133,7 @@ uv run generate_image.py --help
 ## Requirements
 
 - Python 3.10-3.14 (3.12+ recommended)
-- NVIDIA GPU with 12+ GB VRAM
-- CUDA 12.x
+- NVIDIA GPU with 12+ GB VRAM (CUDA 12.x), **or** AMD GPU with 8+ GB VRAM (RX 6000/7000/9000, ROCm 6.4+)
 - ~13 GB disk space for models
 
 ## Performance (RTX 4070)
@@ -155,9 +160,12 @@ The GUI shows a clear error with the exact URL to visit if access hasn't been gr
 **GPU not being used?**
 ```python
 import torch
-print(torch.cuda.is_available())  # Should be True
+print(torch.__version__, torch.cuda.is_available())  # Should end True
+# NVIDIA: 2.x.x  True
+# AMD:    2.x.x+rocm6.4  True
 ```
-If this returns `False` on Windows after installing with `uv tool install`, you have the CPU-only torch wheel. Reinstall the tool using the Windows command in [Installation](#installation-2-commands) above — `uv tool install` ignores `pyproject.toml` index sources, so the PyTorch CUDA index must be passed explicitly on the command line.
+- **Windows (NVIDIA):** If `False`, you have the CPU-only torch wheel. Reinstall using the Windows command in [Installation](#installation-2-commands) above — `uv tool install` ignores `pyproject.toml` sources, so the CUDA index must be passed explicitly.
+- **Linux (AMD):** If `False`, run `uv pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4` to install the ROCm wheel.
 
 ## Next Steps
 

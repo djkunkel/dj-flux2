@@ -1,7 +1,7 @@
 [project]
 name = "dj-flux2"
 version = "0.1.0"
-description = "Minimal FLUX.2 Klein 4B inference with CUDA support"
+description = "Minimal FLUX.2 Klein 4B inference with GPU support (NVIDIA/CUDA and AMD/ROCm)"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

@@ -247,6 +247,70 @@ uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available
 
 The scripts use `✓` and `✗` characters which may raise `UnicodeEncodeError` on Windows terminals using cp1252 encoding. These are intentional — Linux is the primary platform and the symbols should be preserved. Set `PYTHONIOENCODING=utf-8` when testing on Windows if needed. Do NOT replace the symbols to fix a Windows-only cosmetic issue.
 
+### 1.6. AMD GPU Support (ROCm)
+
+**ROCm is supported on Linux only.** Windows ROCm support for PyTorch is not available via the standard pip index.
+
+#### How ROCm works with this codebase
+
+PyTorch's ROCm backend intentionally mirrors the entire `torch.cuda` API. This means:
+
+- `torch.cuda.is_available()` returns `True` on AMD GPUs when the ROCm wheel is installed
+- `torch.device("cuda")` maps to the HIP/ROCm device
+- `.cuda()` calls work transparently
+- `torch.cuda.OutOfMemoryError` is raised on GPU OOM just like NVIDIA
+
+**No Python code changes are required.** The entire generation pipeline works as-is on ROCm.
+
+#### The one exception: flux2 submodule
+
+`flux2/src/flux2/sampling.py:72` contains a hardcoded `.cuda()` call inside the submodule (which cannot be modified). On ROCm this call is transparently translated by PyTorch's HIP layer, so it works correctly without any workaround.
+
+#### Installing the ROCm torch wheel
+
+The standard Linux PyPI `torch` wheel is CUDA-only. AMD users must replace it after the base install:
+
+```bash
+# Step 1: Normal install
+uv venv && uv pip install -e .
+# OR: uv tool install --editable .
+
+# Step 2: Swap in ROCm-enabled torch (ROCm 6.4 — current stable)
+uv pip install torch torchvision \
+  --index-url https://download.pytorch.org/whl/rocm6.4
+```
+
+ROCm wheels are hosted at `https://download.pytorch.org/whl/rocm6.4` (or `rocm6.3` for the previous stable). Check https://pytorch.org/get-started/locally/ for the latest supported version.
+
+**Important:** Do NOT add a `[tool.uv.sources]` ROCm entry to `pyproject.toml`. There is no pip/uv environment marker that can auto-detect GPU type (NVIDIA vs AMD), so any such entry would apply to all Linux users and break NVIDIA installs. The ROCm wheel must always be installed manually as a post-install step.
+
+#### Verifying ROCm is active
+
+```bash
+uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# NVIDIA expected: 2.x.x  True
+# AMD expected:    2.x.x+rocm6.4  True
+# AMD broken:      2.x.x  True   ← CUDA wheel, not ROCm; generation may silently fail
+# AMD broken:      2.x.x  False  ← ROCm not installed or GPU not supported
+```
+
+#### Supported AMD hardware
+
+| GPU family | ROCm support |
+|---|---|
+| RX 9000 series (RDNA 4) | Yes — ROCm 7.2+ |
+| RX 7000 series (RDNA 3) | Yes — ROCm 6.x / 7.x |
+| RX 6000 series (RDNA 2) | Yes — ROCm 6.x |
+| RX 5000 series (RDNA 1) | Limited / community patches only |
+| Vega / older | Not supported |
+| Ryzen APU iGPUs (890M, etc.) | **Not supported** — ROCm requires a discrete GPU |
+
+**Minimum VRAM:** 8 GB (same as NVIDIA). 12 GB recommended for 1024×1024 generation.
+
+#### triton on AMD/Linux
+
+On Linux with the ROCm torch wheel, `triton` is included as a dependency of torch (same as the CUDA wheel). No extra packages are needed. The `triton-windows` entry in `pyproject.toml` is irrelevant for AMD/Linux users.
+
 ### 2. Submodule Respect
 - NEVER modify files in `flux2/` directory (it's a git submodule)
 - `pyrightconfig.json` points the LSP at `flux2/src` — do not remove it
@@ -265,7 +329,7 @@ The scripts use `✓` and `✗` characters which may raise `UnicodeEncodeError` 
 - Use Spandrel's `ModelLoader().load_from_file()` to load models
 - Models are cached in memory after first load (`_realesrgan_model_cache` in `upscale_image.py`)
 - Default to Lanczos unless user explicitly requests Real-ESRGAN
-- Real-ESRGAN requires CUDA (raises `RuntimeError` if not available — do NOT `sys.exit()` from library functions)
+- Real-ESRGAN requires a GPU — NVIDIA (CUDA) or AMD (ROCm) both work (raises `RuntimeError` if no GPU available — do NOT `sys.exit()` from library functions)
 - Test both methods when modifying upscale code
 - Model files: `RealESRGAN_x2plus.pth` (64 MB), `RealESRGAN_x4plus.pth` (64 MB)
 

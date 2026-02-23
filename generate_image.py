@@ -212,8 +212,9 @@ def generate_image(
 
     if not torch.cuda.is_available():
         raise RuntimeError(
-            "CUDA GPU not found. FLUX.2 Klein requires a CUDA-capable GPU.\n"
-            "Check your NVIDIA driver and CUDA installation."
+            "No GPU found. FLUX.2 Klein requires a CUDA-capable (NVIDIA) or ROCm-capable (AMD) GPU.\n"
+            "NVIDIA: check your driver and CUDA installation.\n"
+            "AMD: install the ROCm torch wheel — see README.md for instructions."
         )
     torch.cuda.empty_cache()
     device = torch.device("cuda")

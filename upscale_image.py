@@ -79,10 +79,11 @@ def _upscale_realesrgan(input_path: str, output_path: str, scale: int) -> str:
 
     print(f"Upscaling {scale}x using Real-ESRGAN (AI)...")
 
-    # Check CUDA availability
+    # Check GPU availability (works for both NVIDIA/CUDA and AMD/ROCm)
     if not torch.cuda.is_available():
         raise RuntimeError(
-            "Real-ESRGAN requires a CUDA GPU. Use method='lanczos' for CPU upscaling."
+            "Real-ESRGAN requires a GPU (NVIDIA/CUDA or AMD/ROCm). "
+            "Use method='lanczos' for CPU upscaling."
         )
 
     if scale not in [2, 4]:

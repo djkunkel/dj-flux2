@@ -1,6 +1,6 @@
 # dj-flux2
 
-Minimal FLUX.2 Klein image generation with CUDA support. Fast, simple, and educational.
+Minimal FLUX.2 Klein image generation with GPU support (NVIDIA/CUDA and AMD/ROCm). Fast, simple, and educational.
 
 ## Features
 
@@ -12,13 +12,13 @@ Minimal FLUX.2 Klein image generation with CUDA support. Fast, simple, and educa
 - 🤖 **Multiple Models**: Klein 4B/9B (distilled) and base variants
 - 💾 **Minimal**: Small codebase + BFL submodule
 - 🎓 **Educational**: Clear code structure for learning
-- 🔧 **CUDA Accelerated**: Runs on NVIDIA GPUs
+- 🔧 **GPU Accelerated**: Runs on NVIDIA (CUDA) and AMD (ROCm) GPUs
 
 ## Requirements
 
 - Python 3.10+ (3.12+ recommended)
-- NVIDIA GPU with 8+ GB VRAM (RTX 3080/4070 or better; 12 GB recommended for 1024x1024)
-- CUDA 12.x
+- NVIDIA GPU with 8+ GB VRAM (RTX 3080/4070 or better; 12 GB recommended for 1024x1024), **or** AMD GPU with 8+ GB VRAM (RX 6000/7000/9000 series, RDNA 2+)
+- CUDA 12.x (NVIDIA) or ROCm 6.4+ (AMD)
 - ~13 GB disk space for models
 
 ## Quick Start
@@ -48,6 +48,23 @@ dj-flux2-gui              # Launch GUI
 dj-flux2-upscale -i input.png -o output.png
 dj-flux2-download
 ```
+
+**AMD GPU (ROCm) — Linux only:**
+
+The standard PyPI `torch` wheel on Linux already includes CUDA support but not ROCm. After running the Linux install above, replace the torch wheels with ROCm-enabled ones:
+
+```bash
+# After: uv tool install --editable .  OR  uv pip install -e .
+# Run this to swap in ROCm-enabled torch (ROCm 6.4):
+uv pip install torch torchvision \
+  --index-url https://download.pytorch.org/whl/rocm6.4
+
+# Verify ROCm GPU is detected:
+uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# Expected: 2.x.x+rocm6.4  True
+```
+
+Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/APU GPUs (e.g. Radeon 890M) are **not** supported by ROCm. No code changes are required — PyTorch's ROCm backend reuses the `torch.cuda` API identically.
 
 **Option 2: Local development setup:**
 ```bash
@@ -387,11 +404,15 @@ uv run generate_image.py "prompt" -W 512 -H 512
 
 ### Slow Generation
 
-Check GPU is being used:
+Check GPU is being used (works for both NVIDIA/CUDA and AMD/ROCm):
 ```python
 import torch
-print(torch.cuda.is_available())
+print(torch.__version__, torch.cuda.is_available())
+# NVIDIA: 2.x.x  True
+# AMD:    2.x.x+rocm6.4  True
 ```
+
+If `False` on AMD, ensure you installed the ROCm torch wheel — see [AMD GPU (ROCm)](#installation-options) above.
 
 ### Model Download Fails
 
