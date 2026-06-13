@@ -55,16 +55,35 @@ Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/A
 FLUX.2 Klein models are gated and require accepting license terms before first use:
 
 1. Create account: https://huggingface.co/join
-2. Accept license for each model you want to use:
+2. Accept the license for **each** model you want to use. The gates are
+   per-repo — accepting one does not unlock the others, and a model only
+   downloads after its own gate is accepted:
+   - https://huggingface.co/black-forest-labs/FLUX.2-dev *(required — shared autoencoder)*
    - https://huggingface.co/black-forest-labs/FLUX.2-klein-4B *(default)*
    - https://huggingface.co/black-forest-labs/FLUX.2-klein-9B *(optional)*
-   - https://huggingface.co/black-forest-labs/FLUX.2-dev *(required for the shared autoencoder)*
+   - https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv *(optional; high VRAM — see note below)*
+   - https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B *(optional)*
+   - https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B *(optional)*
 3. Create token: https://huggingface.co/settings/tokens
    - Enable: "Read access to contents of all public gated repos"
 4. Login:
    ```bash
    hf auth login
    ```
+
+A single token works for all repos — you only create it once. If a generation
+fails with "Failed to access the model repository", it almost always means the
+license gate for that specific model has not been accepted yet (the token
+itself is fine).
+
+> **`flux.2-klein-9b-kv` note:** Same 9B architecture and checkpoint size
+> (~17 GB) as `flux.2-klein-9b` — it is *not* a larger model. The `-kv` weights
+> add KV-cache support that speeds up multi-reference image editing (~2.5x) by
+> caching the reference images' key/value tensors across denoising steps. That
+> cache is extra runtime VRAM on top of the weights, pushing peak usage to
+> roughly 29 GB for heavy editing workloads (32 GB-class GPUs). For plain
+> text-to-image there is nothing to cache, so it offers no advantage over
+> regular `flux.2-klein-9b`.
 
 **FLUX models download automatically on first use** — no manual download step required. The first generation will take a few minutes longer while weights are fetched from HuggingFace to `~/.cache/huggingface/hub/`.
 
