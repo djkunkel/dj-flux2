@@ -43,16 +43,16 @@ backend="${1:-}"
 case "$backend" in
     cuda)
         echo "Setting up NVIDIA/CUDA backend (CUDA 12.6)..."
-        uv sync --extra cuda
+        uv sync --extra cuda --reinstall
         ;;
     rocm)
         echo "Setting up AMD/ROCm stable backend (ROCm 7.2)..."
-        uv sync --extra rocm
+        uv sync --extra rocm --reinstall
         ;;
     rocm-nightly)
         echo "Setting up AMD/ROCm nightly backend (ROCm 7.13, ${THEROCK_DATE})..."
         echo "Step 1/2: Syncing base deps via stable rocm extra..."
-        uv sync --extra rocm
+        uv sync --extra rocm --reinstall
         echo "Step 2/2: Installing nightly torch ${TORCH_VER}..."
         uv pip install \
             "torch==${TORCH_VER}" \
@@ -61,7 +61,7 @@ case "$backend" in
         ;;
     cpu)
         echo "Setting up CPU-only backend..."
-        uv sync --extra cpu
+        uv sync --extra cpu --reinstall
         ;;
     "")
         echo "Usage: ./setup <backend>"
