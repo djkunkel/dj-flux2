@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# run — launch a project command with the correct GPU backend.
+#
+# Usage:
+#   ./run gui                               Launch the GUI
+#   ./run generate "prompt" [args]          Generate an image from text
+#   ./run img2img "prompt" -i in.png [args] Transform an image
+#   ./run upscale -i in.png -o out.png      Upscale an image
+#   ./run download                          Download models
+#   ./run python <args>                     Run arbitrary python in the venv
+#
+# Reads .gpu-backend written by ./setup to determine which extra to use
+# and which env vars to set. Run ./setup <backend> first.
+#
+# For generate and img2img, all extra flags are forwarded to generate_image.py.
+# See: ./run generate --help
+
+set -euo pipefail
+
+BACKEND_FILE=".gpu-backend"
+
+die()  { echo "error: $*" >&2; exit 1; }
+usage() {
+    echo "Usage: ./run <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  gui                   Launch the interactive GUI"
+    echo "  generate  <prompt>    Text-to-image generation"
+    echo "  img2img   <prompt>    Image-to-image transformation (requires -i input.png)"
+    echo "  upscale               Upscale an image (requires -i input.png -o output.png)"
+    echo "  download              Download models"
+    echo "  python    <args>      Run arbitrary python in the project venv"
+    echo ""
+    echo "Run ./setup <backend> first if you haven't already."
+    exit 1
+}
+
+# Read .gpu-backend
+if [[ ! -f "$BACKEND_FILE" ]]; then
+    die "No backend configured. Run ./setup <backend> first."
+fi
+backend=$(cat "$BACKEND_FILE" | tr -d '[:space:]')
+
+# Determine the uv extra to pass. rocm-nightly uses the stable rocm extra
+# (torch is already installed by ./setup; --no-sync keeps it in place).
+case "$backend" in
+    cuda|rocm|cpu) uv_extra="$backend" ;;
+    rocm-nightly)  uv_extra="rocm" ;;
+    *) die "Unknown backend '$backend' in $BACKEND_FILE. Re-run ./setup." ;;
+esac
+
+# Set RDNA4-specific env vars when using rocm-nightly.
+if [[ "$backend" == "rocm-nightly" ]]; then
+    # AOTriton flash attention — required for gfx1201
+    export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+    # FAST mode required — NORMAL hangs the GPU on gfx1201 VAE shapes
+    export MIOPEN_FIND_MODE=FAST
+    # Reduces workspace retention between generations
+    export MIOPEN_FIND_ENFORCE=NONE
+    # Flush idle blocks at 80% of reserved memory; cap block size to 512 MB
+    export PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8,max_split_size_mb:512
+fi
+
+# Choose uv run flags. rocm-nightly uses --no-sync to preserve the nightly
+# torch wheel that ./setup installed outside the lockfile.
+if [[ "$backend" == "rocm-nightly" ]]; then
+    uv_flags="--extra ${uv_extra} --no-sync"
+else
+    uv_flags="--extra ${uv_extra}"
+fi
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    gui)
+        exec uv run $uv_flags gui_generate.py "$@"
+        ;;
+    generate)
+        exec uv run $uv_flags generate_image.py "$@"
+        ;;
+    img2img)
+        # img2img is generate_image.py with an input image — same script,
+        # the -i flag is what switches the mode. This alias makes intent clear.
+        exec uv run $uv_flags generate_image.py "$@"
+        ;;
+    upscale)
+        exec uv run $uv_flags upscale_image.py "$@"
+        ;;
+    download)
+        exec uv run $uv_flags download_models.py "$@"
+        ;;
+    python)
+        exec uv run $uv_flags python "$@"
+        ;;
+    ""|--help|-h)
+        usage
+        ;;
+    *)
+        die "Unknown command '$cmd'. Run ./run for available commands."
+        ;;
+esac

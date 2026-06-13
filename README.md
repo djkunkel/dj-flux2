@@ -59,14 +59,15 @@ Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/A
 git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
 
-# One-time setup — picks backend, syncs, and remembers your choice in .gpu-backend
-./dev setup cuda    # NVIDIA
-./dev setup rocm    # AMD
-./dev setup cpu     # CPU only
+# One-time setup per machine — writes .gpu-backend and installs wheels
+./setup cuda         # NVIDIA GPU (CUDA 12.6)
+./setup rocm         # AMD GPU, ROCm 7.2 stable
+./setup rocm-nightly # AMD RDNA4 (RX 9700), ROCm 7.13 nightly
+./setup cpu          # CPU only
 
-# Then use ./dev run instead of uv run — always uses the right --extra automatically
-./dev run gui_generate.py
-./dev run generate_image.py "prompt"
+# Then use ./run for all commands
+./run gui
+./run generate "prompt"
 
 # Using traditional pip (CUDA example)
 python -m venv .venv
@@ -101,7 +102,7 @@ Real-ESRGAN upscaling weights are not on HuggingFace and must be downloaded sepa
 dj-flux2-download
 
 # If using local development setup:
-./dev run download_models.py
+./run download
 ```
 
 This downloads (~128 MB total) to `models/realesrgan/`:
@@ -115,7 +116,7 @@ This downloads (~128 MB total) to `models/realesrgan/`:
 dj-flux2 "a cute cat sitting on a windowsill"
 
 # If using local development:
-./dev run generate_image.py "a cute cat sitting on a windowsill"
+./run generate "a cute cat sitting on a windowsill"
 ```
 
 Output: `output.png`
@@ -131,7 +132,7 @@ For interactive experimentation with real-time preview, use the GUI tool:
 dj-flux2-gui
 
 # Or from the repository directory:
-./dev run gui_generate.py
+./run gui
 ```
 
 **Note:** Install with `uv tool install --editable .` (editable mode) so the tool can access the `flux2/` submodule at runtime. On Windows, additional flags are required to install CUDA-enabled PyTorch — see [Installation Options](#installation-options) above.
@@ -176,15 +177,15 @@ dj-flux2-download
 - ✅ Clean command names
 - ✅ All tools including GUI work globally
 
-**Option 2: Using `uv run` (for development):**
+**Option 2: Using `./run` (for development):**
 ```bash
-uv run generate_image.py "prompt"
-uv run gui_generate.py  # GUI
-uv run upscale_image.py -i input.png -o output.png
+./run generate "prompt"
+./run gui
+./run upscale -i input.png -o output.png
 ```
 - ✅ No need to activate virtual environment
+- ✅ Always uses the correct GPU backend
 - ✅ Good for testing changes during development
-- ✅ No installation required
 
 **Option 3: Activated virtual environment**
 ```bash
@@ -203,7 +204,7 @@ python upscale_image.py -i input.png -o output.png
 ```bash
 # Basic usage (default 512x512)
 dj-flux2 "a majestic mountain landscape at sunset"
-# Or: uv run generate_image.py "a majestic mountain landscape at sunset"
+# Or: ./run generate "a majestic mountain landscape at sunset"
 
 # With custom output path
 dj-flux2 "a robot" -o my_robot.png
@@ -385,12 +386,12 @@ If native generation causes OOM errors at large resolutions, use upscaling inste
 ```bash
 # Instead of a very large native resolution:
 # Use: --upscale 2 (generates 512x512, upscales to 1024x1024)
-uv run generate_image.py "prompt" --upscale 2
+./run generate "prompt" --upscale 2
 ```
 
 Or reduce native resolution:
 ```bash
-uv run generate_image.py "prompt" -W 512 -H 512
+./run generate "prompt" -W 512 -H 512
 ```
 
 ### Slow Generation
@@ -403,7 +404,7 @@ print(torch.__version__, torch.cuda.is_available())
 # AMD:    2.x.x+rocm7.2  True
 ```
 
-If `False` on AMD, ensure you installed with `uv sync --extra rocm` — see [Installation Options](#installation-options) above.
+If `False` on AMD, ensure you ran `./setup rocm` or `./setup rocm-nightly` — see [Installation Options](#installation-options) above.
 
 ### Model Download Fails
 

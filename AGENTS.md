@@ -16,56 +16,33 @@ Minimal FLUX.2 Klein 4B inference implementation using official BFL code as a gi
 
 ### Installation
 ```bash
-# NVIDIA GPU (CUDA 12.6) — default for most users
-uv sync --extra cuda
-
-# AMD GPU (ROCm 7.2) — Linux only
-uv sync --extra rocm
-
-# CPU only — for testing without a GPU
-uv sync --extra cpu
+# One-time setup per machine — writes .gpu-backend (gitignored) and installs wheels
+./setup cuda         # NVIDIA GPU (CUDA 12.6)
+./setup rocm         # AMD GPU, ROCm 7.2 stable (RDNA 2/3)
+./setup rocm-nightly # AMD RDNA4 (gfx120X / RX 9700), ROCm 7.13 nightly
+./setup cpu          # CPU only — for testing without a GPU
 
 # Using traditional venv (CUDA example)
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ```
 
-**Important:** Always pass the same `--extra` flag to both `uv sync` and `uv run`.
-A bare `uv sync` or `uv run` without `--extra` will replace the GPU-specific torch
-wheel with the PyPI default. Use the `dev` wrapper script to avoid this:
-
-```bash
-# One-time setup per machine — writes .gpu-backend (gitignored) and syncs
-./dev setup rocm    # AMD
-./dev setup cuda    # NVIDIA
-./dev setup cpu     # CPU only
-
-# AMD RDNA4 (gfx120X / RX 9700) — uses ROCm 7.13 nightly wheels
-./dev setup rocm-nightly
-```
-
 ### Running Scripts
 
-`uv run` re-syncs the environment before every invocation. You must pass the same
-`--extra` flag you used during `uv sync`, otherwise uv will remove the GPU-specific
-torch wheel and replace it with the PyPI default. Use the `dev` wrapper script to
-avoid this:
-
 ```bash
-# One-time setup per machine — writes .gpu-backend (gitignored) and syncs
-./dev setup rocm    # AMD
-./dev setup cuda    # NVIDIA
-./dev setup cpu     # CPU only
-
-# Now plain `./dev run` always uses the configured backend
-./dev run gui_generate.py
-./dev run generate_image.py "prompt" -o output.png
-./dev run generate_image.py "prompt" -W 1024 -H 1024 -o output.png
-./dev run generate_image.py "prompt" --upscale 2 -o output.png
-./dev run generate_image.py "style prompt" -i input.png -o output.png
-./dev run upscale_image.py -i input.png -o output.png --scale 2
-./dev run download_models.py
+./run gui                                        # Launch interactive GUI
+./run generate "prompt" -o output.png            # Text-to-image
+./run generate "prompt" -W 1024 -H 1024          # High resolution
+./run generate "prompt" --upscale 2              # With upscaling
+./run img2img "style prompt" -i input.png        # Image-to-image
+./run upscale -i input.png -o output.png         # Upscale existing image
+./run download                                   # Download models
 ```
+
+`./run` reads `.gpu-backend` written by `./setup` to determine the correct
+uv extra and env vars. Never run `uv run` or `uv sync` directly — without
+`--extra <backend>` uv will replace the GPU-specific torch wheel with the
+PyPI default (CUDA on Linux, CPU on Windows/macOS).
 
 Alternatively, activate the venv directly — uv's auto-sync is bypassed entirely:
 
@@ -80,13 +57,13 @@ python generate_image.py "prompt"
 ```bash
 # No formal test suite yet - manual testing only
 # Test text-to-image
-./dev run generate_image.py "test image" -o test.png -S 42
+./run generate "test image" -o test.png -S 42
 
 # Test img2img
-./dev run generate_image.py "pencil sketch" -i test.png -o sketch.png
+./run img2img "pencil sketch" -i test.png -o sketch.png
 
 # Verify imports work
-./dev run python -c "from flux2.util import load_flow_model; print('✓ OK')"
+./run python -c "from flux2.util import load_flow_model; print('✓ OK')"
 ```
 
 ### Linting/Formatting
@@ -98,16 +75,16 @@ python generate_image.py "prompt"
 ### Testing AI Upscaling
 ```bash
 # Download Real-ESRGAN models (only needed once; FLUX models auto-download on first use)
-./dev run download_models.py
+./run download
 
 # Test Lanczos (default, fast)
-./dev run upscale_image.py -i test.png -o test_lanczos_2x.png --scale 2
+./run upscale -i test.png -o test_lanczos_2x.png --scale 2
 
 # Test Real-ESRGAN (AI quality)
-./dev run upscale_image.py -i test.png -o test_ai_2x.png --scale 2 --method realesrgan
+./run upscale -i test.png -o test_ai_2x.png --scale 2 --method realesrgan
 
-# Test integrated with generate_image.py
-./dev run generate_image.py "test" --upscale 2 --upscale-method realesrgan
+# Test integrated with generate
+./run generate "test" --upscale 2 --upscale-method realesrgan
 ```
 
 ## Code Style Guidelines
@@ -262,7 +239,7 @@ Without these flags, the installed tool will have CPU-only torch and fail with "
 #### Verifying CUDA is active
 
 ```bash
-./dev run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+./run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 # Linux expected:   2.12.0 True
 # Windows expected: 2.12.0+cu126 True
 # Windows broken:   2.12.0+cpu False  ← wrong wheel installed
@@ -308,21 +285,21 @@ ROCm wheels are hosted at `https://download.pytorch.org/whl/rocm7.2`. The `rocm`
 ROCm 7.2 stable does not support RDNA4 correctly. Use the `rocm-nightly` backend instead:
 
 ```bash
-./dev setup rocm-nightly
+./setup rocm-nightly
 ```
 
 This installs torch from the AMD per-family nightly index at
 `https://rocm.nightlies.amd.com/v2/gfx120X-all/`, pinned to a specific
 `THEROCK_DATE` build known to work. The date pin and version strings live
-in the `dev` script — update them there when bumping to a newer nightly.
+in the `setup` script — update them there when bumping to a newer nightly.
 
 `rocm-nightly` is intentionally **not** a uv extra in `pyproject.toml`. The
 nightly index uses pre-release local version specifiers that uv cannot resolve
-at lock time. `./dev setup rocm-nightly` handles it with `uv pip install
+at lock time. `./setup rocm-nightly` handles it with `uv pip install
 --index-url` after first syncing the stable `rocm` extra for all other deps
 (identical to the approach used in `invokeai-rocm/Dockerfile`).
 
-`./dev run` automatically sets the required RDNA4 env vars when `.gpu-backend`
+`./run` automatically sets the required RDNA4 env vars when `.gpu-backend`
 is `rocm-nightly`:
 
 | Variable | Value | Reason |
@@ -333,13 +310,13 @@ is `rocm-nightly`:
 | `PYTORCH_ALLOC_CONF` | `garbage_collection_threshold:0.8,max_split_size_mb:512` | Reduces VRAM fragmentation |
 
 **To update the nightly pin:** edit `THEROCK_DATE`, `TORCH_VER`, and `TV_VER`
-at the top of the `dev` script. Browse the index for available builds:
+at the top of the `setup` script. Browse the index for available builds:
 `https://rocm.nightlies.amd.com/v2/gfx120X-all/torch/`
 
 #### Verifying ROCm is active
 
 ```bash
-./dev run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+./run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 # NVIDIA expected: 2.x.x  True
 # AMD expected:    2.x.x+rocm7.2  True
 # AMD broken:      2.x.x  True   ← CUDA wheel, not ROCm; generation may silently fail

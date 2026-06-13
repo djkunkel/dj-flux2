@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# setup — install wheels for the chosen GPU backend.
+#
+# Usage:
+#   ./setup cuda         NVIDIA GPU, CUDA 12.6
+#   ./setup rocm         AMD GPU, ROCm 7.2 stable (RDNA 2/3)
+#   ./setup rocm-nightly AMD RDNA4 (gfx120X / RX 9700), ROCm 7.13 nightly
+#   ./setup cpu          CPU only, no GPU
+#
+# Writes the chosen backend to .gpu-backend (gitignored) so that ./run
+# knows which env vars to set without needing to be told again.
+#
+# rocm-nightly is handled differently from the other backends: uv cannot
+# resolve the nightly pre-release local version specifiers alongside the
+# stable extras at lock time. Instead, this script syncs the stable rocm
+# extra first (to install all non-torch deps), then overwrites torch and
+# torchvision with the pinned nightly build via uv pip --index-url.
+# This is the same approach used in invokeai-rocm/Dockerfile.
+#
+# To update the nightly pin, edit THEROCK_DATE, TORCH_VER, and TV_VER below.
+# Browse https://rocm.nightlies.amd.com/v2/gfx120X-all/torch/ for builds.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Nightly pin — update these three variables to bump to a newer build
+# ---------------------------------------------------------------------------
+THEROCK_DATE="20260512"
+TORCH_VER="2.10.0+rocm7.13.0a${THEROCK_DATE}"
+TV_VER="0.25.0+rocm7.13.0a${THEROCK_DATE}"
+ROCM_NIGHTLY_INDEX="https://rocm.nightlies.amd.com/v2/gfx120X-all/"
+# ---------------------------------------------------------------------------
+
+BACKEND_FILE=".gpu-backend"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+backend="${1:-}"
+
+case "$backend" in
+    cuda)
+        echo "Setting up NVIDIA/CUDA backend (CUDA 12.6)..."
+        uv sync --extra cuda
+        ;;
+    rocm)
+        echo "Setting up AMD/ROCm stable backend (ROCm 7.2)..."
+        uv sync --extra rocm
+        ;;
+    rocm-nightly)
+        echo "Setting up AMD/ROCm nightly backend (ROCm 7.13, ${THEROCK_DATE})..."
+        echo "Step 1/2: Syncing base deps via stable rocm extra..."
+        uv sync --extra rocm
+        echo "Step 2/2: Installing nightly torch ${TORCH_VER}..."
+        uv pip install \
+            "torch==${TORCH_VER}" \
+            "torchvision==${TV_VER}" \
+            --index-url "${ROCM_NIGHTLY_INDEX}"
+        ;;
+    cpu)
+        echo "Setting up CPU-only backend..."
+        uv sync --extra cpu
+        ;;
+    "")
+        echo "Usage: ./setup <backend>"
+        echo ""
+        echo "Backends:"
+        echo "  cuda         NVIDIA GPU, CUDA 12.6"
+        echo "  rocm         AMD GPU, ROCm 7.2 stable (RDNA 2/3)"
+        echo "  rocm-nightly AMD RDNA4 (gfx120X / RX 9700), ROCm 7.13 nightly"
+        echo "  cpu          CPU only, no GPU"
+        exit 1
+        ;;
+    *)
+        die "Unknown backend '$backend'. Choose: cuda, rocm, rocm-nightly, cpu"
+        ;;
+esac
+
+echo "$backend" > "$BACKEND_FILE"
+echo "Done. Backend set to '$backend'. Use ./run to launch the project."
