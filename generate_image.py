@@ -33,6 +33,7 @@ from flux2.sampling import (
 SUPPORTED_MODELS = [
     "flux.2-klein-4b",
     "flux.2-klein-9b",
+    "flux.2-klein-9b-kv",
     "flux.2-klein-base-4b",
     "flux.2-klein-base-9b",
 ]
@@ -378,7 +379,7 @@ def main():
         m: FLUX2_MODEL_INFO[m]["defaults"]["guidance"] for m in SUPPORTED_MODELS
     }
     guidance_help = (
-        "Guidance scale. Ignored for distilled models (klein-4b, klein-9b). Defaults: "
+        "Guidance scale. Ignored for distilled models (klein-4b, klein-9b, klein-9b-kv). Defaults: "
         + ", ".join(f"{m}={g}" for m, g in default_guidance_per_model.items())
     )
 
@@ -476,19 +477,30 @@ Examples:
     # CLI flags always win; config fills in the gaps; built-in defaults are last.
     cfg = read_config()
 
+    # Malformed values in a hand-edited config fall back to the built-in
+    # default rather than crashing (the GUI parses the same file defensively).
+    def _cfg_num(key, default, cast):
+        if key not in cfg:
+            return default
+        try:
+            return cast(cfg[key])
+        except ValueError:
+            print(f"Warning: ignoring invalid {key!r} in config: {cfg[key]!r}")
+            return default
+
     if args.model is None:
         args.model = cfg.get("model", DEFAULT_MODEL)
     if args.width is None:
-        args.width = int(cfg.get("width", 512))
+        args.width = _cfg_num("width", 512, int)
     if args.height is None:
-        args.height = int(cfg.get("height", 512))
+        args.height = _cfg_num("height", 512, int)
     # steps and guidance are already None by default — config fills them in
     # so they reach generate_image() as explicit values rather than None,
     # but only if the user didn't pass -s/-g on the command line.
     if args.steps is None and "steps" in cfg:
-        args.steps = int(cfg["steps"])
+        args.steps = _cfg_num("steps", None, int)
     if args.guidance is None and "guidance" in cfg:
-        args.guidance = float(cfg["guidance"])
+        args.guidance = _cfg_num("guidance", None, float)
 
     generate_kwargs = dict(
         prompt=args.prompt,

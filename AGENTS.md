@@ -206,47 +206,50 @@ Do NOT add:
 
 **Linux is the primary platform.** All development and testing defaults should target Linux. The Python scripts themselves are cross-platform with no platform conditionals.
 
-#### Why CUDA works out-of-the-box on Linux
+#### How the torch wheel is selected: per-extra indexes
 
-On Linux x86_64, the PyPI `torch` wheel declares `nvidia-*-cu12` packages and `triton` as pip dependencies. `uv sync` and `uv tool install` both install them automatically — no special indexes or flags needed. CUDA just works.
+The backend is chosen by which optional-dependency extra you install, not by
+the host platform. `pyproject.toml` declares three extras (`cpu`, `cuda`,
+`rocm`) and routes `torch`/`torchvision` to the matching PyTorch index via
+`[tool.uv.sources]` keyed on `extra` (not `marker`):
 
-#### Why Windows needs extra steps
-
-On Windows, the PyPI `torch` wheel is CPU-only (no CUDA). The CUDA-enabled Windows wheel only exists on PyTorch's own index. Two additional things are required:
-
-1. **`[tool.uv.sources]` in `pyproject.toml`** redirects `torch` and `torchvision` to the PyTorch CUDA index for `uv sync` / `uv run`:
-   ```toml
-   [tool.uv.sources]
-   torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32'" }]
-   torchvision = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32'" }]
-
-   [[tool.uv.index]]
-   name = "pytorch-cu126"
-   url = "https://download.pytorch.org/whl/cu126"
-   explicit = true
-   ```
-
-2. **`triton-windows`** is required on Windows because `transformers`' FP8 quantization (used by the Qwen3-4B-FP8 text encoder) imports `triton` at module level. On Linux, `triton` is a torch dependency and installs automatically. On Windows it doesn't exist, so `triton-windows` (the community port) is added as a Windows-only dependency:
-   ```toml
-   "triton-windows>=3.6.0; sys_platform == 'win32'",
-   ```
-
-   Note: PyTorch 2.12 stable dropped CUDA 12.8 (cu128) in favour of CUDA 12.6 (cu126) and 13.0 (cu130) for Windows. The project uses cu126.
-
-#### `uv tool install` on Windows
-
-`uv tool install` ignores `pyproject.toml` sources — it is a user-level command that never reads project config. On Windows the CUDA index must be passed explicitly:
-
-```bash
-uv tool install --editable ".[cuda]" \
-  --index https://download.pytorch.org/whl/cu126 \
-  --index-strategy unsafe-best-match \
-  --reinstall-package torch \
-  --reinstall-package torchvision \
-  --reinstall-package triton-windows
+```toml
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu",    extra = "cpu"  },
+  { index = "pytorch-cu126",  extra = "cuda" },
+  { index = "pytorch-rocm72", extra = "rocm" },
+]
 ```
 
-Without these flags, the installed tool will have CPU-only torch and fail with "CUDA GPU not found".
+The extras are declared mutually exclusive under `[tool.uv]` `conflicts`, so
+uv resolves each independently. `./setup <backend>` runs the correct
+`uv sync --extra <backend>`; `./run` reads `.gpu-backend` and passes the same
+`--extra` on every invocation. Install exactly one extra — see §1.6 for the
+rationale.
+
+Note: PyTorch 2.12 stable dropped CUDA 12.8 (cu128) in favour of CUDA 12.6
+(cu126) and 13.0 (cu130). The project uses cu126.
+
+#### Windows specifics
+
+On Windows the PyPI `torch` wheel is CPU-only; the CUDA wheel lives on
+PyTorch's own index. The `cuda` extra above already routes there, so
+`./setup cuda` (or `pip install -e ".[cuda]" --index-url
+https://download.pytorch.org/whl/cu126`) installs the correct wheel — no
+platform markers needed.
+
+`triton-windows` is a Windows-only dependency because `transformers`' FP8
+quantization (used by the Qwen3-4B-FP8 text encoder) imports `triton` at
+module level. On Linux `triton` ships as a torch dependency and installs
+automatically; on Windows it does not exist, so the community port is pulled
+in via a marker in the base dependencies:
+
+```toml
+"triton-windows>=3.6.0; sys_platform == 'win32'",
+```
+
+ROCm is not available on Windows — use `cpu` or `cuda` there.
 
 #### Verifying CUDA is active
 

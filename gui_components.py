@@ -739,8 +739,13 @@ class LeftConfigPanel(QWidget):
         cfg = read_config()
         model = cfg.get("model", DEFAULT_MODEL) if cfg.get("model") in SUPPORTED_MODELS else DEFAULT_MODEL
         self.set_model(model)
-        self._width_combo.setCurrentText(cfg.get("width", "512"))
-        self._height_combo.setCurrentText(cfg.get("height", "512"))
+        # Add non-standard sizes to the combo before selecting; setCurrentText
+        # is a no-op on a non-editable combo when the item is absent.
+        for combo, key in ((self._width_combo, "width"), (self._height_combo, "height")):
+            text = cfg.get(key, "512")
+            if combo.findText(text) == -1:
+                combo.addItem(text)
+            combo.setCurrentText(text)
         if "steps" in cfg:
             try:
                 self._steps_spin.setValue(int(cfg["steps"]))
