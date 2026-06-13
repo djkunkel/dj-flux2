@@ -16,40 +16,63 @@ Minimal FLUX.2 Klein 4B inference implementation using official BFL code as a gi
 
 ### Installation
 ```bash
-# First time setup
-uv venv
-uv pip install -e .
+# NVIDIA GPU (CUDA 12.6) — default for most users
+uv sync --extra cuda
 
-# Using traditional venv
+# AMD GPU (ROCm 7.2) — Linux only
+uv sync --extra rocm
+
+# CPU only — for testing without a GPU
+uv sync --extra cpu
+
+# Using traditional venv (CUDA example)
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
+```
+
+**Important:** Always pass the same `--extra` flag to both `uv sync` and `uv run`.
+A bare `uv sync` or `uv run` without `--extra` will replace the GPU-specific torch
+wheel with the PyPI default. Use the `dev` wrapper script to avoid this:
+
+```bash
+# One-time setup per machine — writes .gpu-backend (gitignored) and syncs
+./dev setup rocm    # AMD
+./dev setup cuda    # NVIDIA
+./dev setup cpu     # CPU only
+
+# AMD RDNA4 (gfx120X / RX 9700) — uses ROCm 7.13 nightly wheels
+./dev setup rocm-nightly
 ```
 
 ### Running Scripts
+
+`uv run` re-syncs the environment before every invocation. You must pass the same
+`--extra` flag you used during `uv sync`, otherwise uv will remove the GPU-specific
+torch wheel and replace it with the PyPI default. Use the `dev` wrapper script to
+avoid this:
+
 ```bash
-# Launch interactive GUI
-uv run gui_generate.py
+# One-time setup per machine — writes .gpu-backend (gitignored) and syncs
+./dev setup rocm    # AMD
+./dev setup cuda    # NVIDIA
+./dev setup cpu     # CPU only
 
-# Generate image (text-to-image)
-uv run generate_image.py "prompt" -o output.png
+# Now plain `./dev run` always uses the configured backend
+./dev run gui_generate.py
+./dev run generate_image.py "prompt" -o output.png
+./dev run generate_image.py "prompt" -W 1024 -H 1024 -o output.png
+./dev run generate_image.py "prompt" --upscale 2 -o output.png
+./dev run generate_image.py "style prompt" -i input.png -o output.png
+./dev run upscale_image.py -i input.png -o output.png --scale 2
+./dev run download_models.py
+```
 
-# Native high resolution (requires sufficient VRAM)
-uv run generate_image.py "prompt" -W 1024 -H 1024 -o output.png
+Alternatively, activate the venv directly — uv's auto-sync is bypassed entirely:
 
-# Lanczos upscaling approach (VRAM efficient)
-uv run generate_image.py "prompt" --upscale 2 -o output.png
+```bash
+source .venv/bin/activate
 
-# Image-to-image transformation
-uv run generate_image.py "style prompt" -i input.png -o output.png
-
-# Upscale existing image
-uv run upscale_image.py -i input.png -o output.png --scale 2
-
-# Download models
-uv run download_models.py
-
-# With activated venv
-python gui_generate.py  # GUI
+python gui_generate.py
 python generate_image.py "prompt"
 ```
 
@@ -57,13 +80,13 @@ python generate_image.py "prompt"
 ```bash
 # No formal test suite yet - manual testing only
 # Test text-to-image
-uv run generate_image.py "test image" -o test.png -S 42
+./dev run generate_image.py "test image" -o test.png -S 42
 
 # Test img2img
-uv run generate_image.py "pencil sketch" -i test.png -o sketch.png
+./dev run generate_image.py "pencil sketch" -i test.png -o sketch.png
 
 # Verify imports work
-uv run python -c "from flux2.util import load_flow_model; print('✓ OK')"
+./dev run python -c "from flux2.util import load_flow_model; print('✓ OK')"
 ```
 
 ### Linting/Formatting
@@ -75,16 +98,16 @@ uv run python -c "from flux2.util import load_flow_model; print('✓ OK')"
 ### Testing AI Upscaling
 ```bash
 # Download Real-ESRGAN models (only needed once; FLUX models auto-download on first use)
-uv run download_models.py
+./dev run download_models.py
 
 # Test Lanczos (default, fast)
-uv run upscale_image.py -i test.png -o test_lanczos_2x.png --scale 2
+./dev run upscale_image.py -i test.png -o test_lanczos_2x.png --scale 2
 
 # Test Real-ESRGAN (AI quality)
-uv run upscale_image.py -i test.png -o test_ai_2x.png --scale 2 --method realesrgan
+./dev run upscale_image.py -i test.png -o test_ai_2x.png --scale 2 --method realesrgan
 
 # Test integrated with generate_image.py
-uv run generate_image.py "test" --upscale 2 --upscale-method realesrgan
+./dev run generate_image.py "test" --upscale 2 --upscale-method realesrgan
 ```
 
 ## Code Style Guidelines
@@ -205,12 +228,12 @@ On Windows, the PyPI `torch` wheel is CPU-only (no CUDA). The CUDA-enabled Windo
 1. **`[tool.uv.sources]` in `pyproject.toml`** redirects `torch` and `torchvision` to the PyTorch CUDA index for `uv sync` / `uv run`:
    ```toml
    [tool.uv.sources]
-   torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32'" }]
-   torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32'" }]
+   torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32'" }]
+   torchvision = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32'" }]
 
    [[tool.uv.index]]
-   name = "pytorch-cu128"
-   url = "https://download.pytorch.org/whl/cu128"
+   name = "pytorch-cu126"
+   url = "https://download.pytorch.org/whl/cu126"
    explicit = true
    ```
 
@@ -219,13 +242,15 @@ On Windows, the PyPI `torch` wheel is CPU-only (no CUDA). The CUDA-enabled Windo
    "triton-windows>=3.6.0; sys_platform == 'win32'",
    ```
 
+   Note: PyTorch 2.12 stable dropped CUDA 12.8 (cu128) in favour of CUDA 12.6 (cu126) and 13.0 (cu130) for Windows. The project uses cu126.
+
 #### `uv tool install` on Windows
 
-`uv tool install` ignores `pyproject.toml` sources — it is a user-level command that never reads project config. On Linux this doesn't matter because PyPI torch already pulls CUDA deps. On Windows the CUDA index must be passed explicitly:
+`uv tool install` ignores `pyproject.toml` sources — it is a user-level command that never reads project config. On Windows the CUDA index must be passed explicitly:
 
 ```bash
-uv tool install --editable . \
-  --index https://download.pytorch.org/whl/cu128 \
+uv tool install --editable ".[cuda]" \
+  --index https://download.pytorch.org/whl/cu126 \
   --index-strategy unsafe-best-match \
   --reinstall-package torch \
   --reinstall-package torchvision \
@@ -237,10 +262,10 @@ Without these flags, the installed tool will have CPU-only torch and fail with "
 #### Verifying CUDA is active
 
 ```bash
-uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-# Linux expected:   2.10.0 True
-# Windows expected: 2.10.0+cu128 True
-# Windows broken:   2.10.0+cpu False  ← wrong wheel installed
+./dev run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# Linux expected:   2.12.0 True
+# Windows expected: 2.12.0+cu126 True
+# Windows broken:   2.12.0+cpu False  ← wrong wheel installed
 ```
 
 #### Unicode in print() on Windows
@@ -268,28 +293,55 @@ PyTorch's ROCm backend intentionally mirrors the entire `torch.cuda` API. This m
 
 #### Installing the ROCm torch wheel
 
-The standard Linux PyPI `torch` wheel is CUDA-only. AMD users must replace it after the base install:
+Use the `rocm` extra — uv will pull the correct wheel from the PyTorch ROCm 7.2 index automatically:
 
 ```bash
-# Step 1: Normal install
-uv venv && uv pip install -e .
-# OR: uv tool install --editable .
-
-# Step 2: Swap in ROCm-enabled torch (ROCm 6.4 — current stable)
-uv pip install torch torchvision \
-  --index-url https://download.pytorch.org/whl/rocm6.4
+uv sync --extra rocm
 ```
 
-ROCm wheels are hosted at `https://download.pytorch.org/whl/rocm6.4` (or `rocm6.3` for the previous stable). Check https://pytorch.org/get-started/locally/ for the latest supported version.
+ROCm wheels are hosted at `https://download.pytorch.org/whl/rocm7.2`. The `rocm` extra in `pyproject.toml` points there explicitly via `[tool.uv.sources]`, so no manual index flags are needed.
 
-**Important:** Do NOT add a `[tool.uv.sources]` ROCm entry to `pyproject.toml`. There is no pip/uv environment marker that can auto-detect GPU type (NVIDIA vs AMD), so any such entry would apply to all Linux users and break NVIDIA installs. The ROCm wheel must always be installed manually as a post-install step.
+**Important:** Install exactly one of `--extra cpu`, `--extra cuda`, or `--extra rocm`. Installing multiple extras simultaneously will cause uv to attempt resolving torch from conflicting indexes.
+
+#### RDNA4 (gfx120X / RX 9700) — ROCm 7.13 nightly
+
+ROCm 7.2 stable does not support RDNA4 correctly. Use the `rocm-nightly` backend instead:
+
+```bash
+./dev setup rocm-nightly
+```
+
+This installs torch from the AMD per-family nightly index at
+`https://rocm.nightlies.amd.com/v2/gfx120X-all/`, pinned to a specific
+`THEROCK_DATE` build known to work. The date pin and version strings live
+in the `dev` script — update them there when bumping to a newer nightly.
+
+`rocm-nightly` is intentionally **not** a uv extra in `pyproject.toml`. The
+nightly index uses pre-release local version specifiers that uv cannot resolve
+at lock time. `./dev setup rocm-nightly` handles it with `uv pip install
+--index-url` after first syncing the stable `rocm` extra for all other deps
+(identical to the approach used in `invokeai-rocm/Dockerfile`).
+
+`./dev run` automatically sets the required RDNA4 env vars when `.gpu-backend`
+is `rocm-nightly`:
+
+| Variable | Value | Reason |
+|---|---|---|
+| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` | `1` | Enables AOTriton flash attention for gfx1201 |
+| `MIOPEN_FIND_MODE` | `FAST` | NORMAL hangs the GPU on gfx1201 VAE shapes |
+| `MIOPEN_FIND_ENFORCE` | `NONE` | Reduces workspace retention between generations |
+| `PYTORCH_ALLOC_CONF` | `garbage_collection_threshold:0.8,max_split_size_mb:512` | Reduces VRAM fragmentation |
+
+**To update the nightly pin:** edit `THEROCK_DATE`, `TORCH_VER`, and `TV_VER`
+at the top of the `dev` script. Browse the index for available builds:
+`https://rocm.nightlies.amd.com/v2/gfx120X-all/torch/`
 
 #### Verifying ROCm is active
 
 ```bash
-uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+./dev run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 # NVIDIA expected: 2.x.x  True
-# AMD expected:    2.x.x+rocm6.4  True
+# AMD expected:    2.x.x+rocm7.2  True
 # AMD broken:      2.x.x  True   ← CUDA wheel, not ROCm; generation may silently fail
 # AMD broken:      2.x.x  False  ← ROCm not installed or GPU not supported
 ```
@@ -298,9 +350,9 @@ uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available
 
 | GPU family | ROCm support |
 |---|---|
-| RX 9000 series (RDNA 4) | Yes — ROCm 7.2+ |
-| RX 7000 series (RDNA 3) | Yes — ROCm 6.x / 7.x |
-| RX 6000 series (RDNA 2) | Yes — ROCm 6.x |
+| RX 9000 series (RDNA 4) | Yes — `rocm-nightly` backend (ROCm 7.13 nightly) |
+| RX 7000 series (RDNA 3) | Yes — `rocm` backend (ROCm 7.2 stable) |
+| RX 6000 series (RDNA 2) | Yes — `rocm` backend (ROCm 7.2 stable) |
 | RX 5000 series (RDNA 1) | Limited / community patches only |
 | Vega / older | Not supported |
 | Ryzen APU iGPUs (890M, etc.) | **Not supported** — ROCm requires a discrete GPU |

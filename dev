@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# dev — project wrapper that always uses the correct GPU backend.
+#
+# Usage:
+#   ./dev setup cpu          # one-time: write .gpu-backend and sync
+#   ./dev setup cuda         # NVIDIA GPU (CUDA 12.6)
+#   ./dev setup rocm         # AMD GPU, ROCm 7.2 stable
+#   ./dev setup rocm-nightly # AMD RDNA4 (gfx120X), ROCm 7.13 nightly
+#
+#   ./dev sync          # re-sync with the configured backend
+#   ./dev run <args>    # uv run with the configured backend + env vars
+#   ./dev backend       # print the currently configured backend
+#
+# The chosen backend is stored in .gpu-backend (gitignored).
+# This prevents accidental `uv sync` / `uv run` without --extra from
+# clobbering the GPU-specific torch wheel.
+#
+# rocm-nightly is special: it bypasses uv's lockfile and installs torch
+# directly via `uv pip install --index-url`, exactly like the invokeai-rocm
+# Dockerfile. torchvision and triton resolve automatically as torch deps.
+
+set -euo pipefail
+
+BACKEND_FILE=".gpu-backend"
+VALID_BACKENDS="cpu cuda rocm rocm-nightly"
+
+# ROCm 7.13 nightly index for RDNA4 (gfx120X) — permanent append-only archive.
+ROCM_NIGHTLY_INDEX="https://rocm.nightlies.amd.com/v2/gfx120X-all/"
+# Pinned build date. Browse ${ROCM_NIGHTLY_INDEX}torch/ for available builds.
+# Update this and TORCH_VER / TV_VER together when bumping the nightly.
+THEROCK_DATE="20260512"
+TORCH_VER="2.10.0+rocm7.13.0a${THEROCK_DATE}"
+TV_VER="0.25.0+rocm7.13.0a${THEROCK_DATE}"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+read_backend() {
+    if [[ ! -f "$BACKEND_FILE" ]]; then
+        die "No GPU backend configured. Run: ./dev setup <backend>
+  where <backend> is one of: $VALID_BACKENDS"
+    fi
+    local backend
+    backend=$(cat "$BACKEND_FILE" | tr -d '[:space:]')
+    case "$backend" in
+        cpu|cuda|rocm|rocm-nightly) echo "$backend" ;;
+        *) die "Invalid backend '$backend' in $BACKEND_FILE. Must be one of: $VALID_BACKENDS" ;;
+    esac
+}
+
+# Set env vars required for RDNA4 (gfx120X) when using rocm-nightly.
+# These are no-ops on other backends.
+set_rdna4_env() {
+    # AOTriton flash attention — required for gfx1201
+    export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+    # MIOpen: FAST mode required — NORMAL hangs the GPU on gfx1201 VAE shapes
+    export MIOPEN_FIND_MODE=FAST
+    # Reduce workspace retention between generations
+    export MIOPEN_FIND_ENFORCE=NONE
+    # HIP allocator tuning: flush idle blocks at 80%, cap block size to 512 MB
+    export PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8,max_split_size_mb:512
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    setup)
+        backend="${1:-}"
+        case "$backend" in
+            cpu|cuda|rocm) ;;
+            rocm-nightly)
+                echo "Backend set to 'rocm-nightly'."
+                echo "Step 1/2: Installing base deps via uv sync --extra rocm ..."
+                # Sync the stable rocm extra first to get all non-torch deps in place,
+                # then overwrite torch/torchvision with the nightly build.
+                uv sync --extra rocm
+                echo "Step 2/2: Installing nightly torch ${TORCH_VER} from ${ROCM_NIGHTLY_INDEX} ..."
+                uv pip install \
+                    "torch==${TORCH_VER}" \
+                    "torchvision==${TV_VER}" \
+                    --index-url "${ROCM_NIGHTLY_INDEX}"
+                echo "$backend" > "$BACKEND_FILE"
+                echo "Done. Use './dev run <script>' to run scripts with this backend."
+                exit 0
+                ;;
+            *) die "Usage: ./dev setup <backend>  (one of: $VALID_BACKENDS)" ;;
+        esac
+        echo "$backend" > "$BACKEND_FILE"
+        echo "Backend set to '$backend'. Running uv sync --extra $backend ..."
+        uv sync --extra "$backend"
+        echo "Done. Use './dev run <script>' to run scripts with this backend."
+        ;;
+
+    sync)
+        backend=$(read_backend)
+        if [[ "$backend" == "rocm-nightly" ]]; then
+            # Re-run setup to ensure the pinned nightly wheels are in place.
+            # uv sync alone would clobber the nightly torch with the stable rocm wheel.
+            exec "$0" setup rocm-nightly
+        fi
+        exec uv sync --extra "$backend" "$@"
+        ;;
+
+    run)
+        backend=$(read_backend)
+        if [[ "$backend" == "rocm-nightly" ]]; then
+            set_rdna4_env
+            # Use --extra rocm so uv run doesn't try to re-sync torch from PyPI.
+            # The nightly torch is already installed; --no-sync would be cleanest
+            # but --extra rocm keeps all other deps correct.
+            exec uv run --extra rocm --no-sync "$@"
+        fi
+        exec uv run --extra "$backend" "$@"
+        ;;
+
+    backend)
+        read_backend
+        ;;
+
+    *)
+        echo "Usage:"
+        echo "  ./dev setup <backend>   Set GPU backend and sync"
+        echo "  ./dev sync              Re-sync with the configured backend"
+        echo "  ./dev run <args>        Run a script with the configured backend"
+        echo "  ./dev backend           Print the currently configured backend"
+        echo ""
+        echo "Backends:"
+        echo "  cpu          CPU only (no GPU)"
+        echo "  cuda         NVIDIA GPU, CUDA 12.6"
+        echo "  rocm         AMD GPU, ROCm 7.2 stable"
+        echo "  rocm-nightly AMD RDNA4 (gfx120X / RX 9700), ROCm 7.13 nightly (20260512)"
+        exit 1
+        ;;
+esac

@@ -18,7 +18,7 @@ Minimal FLUX.2 Klein image generation with GPU support (NVIDIA/CUDA and AMD/ROCm
 
 - Python 3.10+ (3.12+ recommended)
 - NVIDIA GPU with 8+ GB VRAM (RTX 3080/4070 or better; 12 GB recommended for 1024x1024), **or** AMD GPU with 8+ GB VRAM (RX 6000/7000/9000 series, RDNA 2+)
-- CUDA 12.x (NVIDIA) or ROCm 6.4+ (AMD)
+- CUDA 12.x (NVIDIA) or ROCm 7.2+ (AMD)
 - ~13 GB disk space for models
 
 ## Quick Start
@@ -30,13 +30,16 @@ Minimal FLUX.2 Klein image generation with GPU support (NVIDIA/CUDA and AMD/ROCm
 git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
 
-# Linux / macOS:
-uv tool install --editable .
+# Linux — NVIDIA GPU (CUDA 12.6):
+uv tool install --editable ".[cuda]"
+
+# Linux — AMD GPU (ROCm 7.2):
+uv tool install --editable ".[rocm]"
 
 # Windows (CUDA) — uv tool install resolves independently from the project
 # venv, so the PyTorch CUDA index must be passed explicitly:
-uv tool install --editable . \
-  --index https://download.pytorch.org/whl/cu128 \
+uv tool install --editable ".[cuda]" \
+  --index https://download.pytorch.org/whl/cu126 \
   --index-strategy unsafe-best-match \
   --reinstall-package torch \
   --reinstall-package torchvision \
@@ -49,21 +52,6 @@ dj-flux2-upscale -i input.png -o output.png
 dj-flux2-download
 ```
 
-**AMD GPU (ROCm) — Linux only:**
-
-The standard PyPI `torch` wheel on Linux already includes CUDA support but not ROCm. After running the Linux install above, replace the torch wheels with ROCm-enabled ones:
-
-```bash
-# After: uv tool install --editable .  OR  uv pip install -e .
-# Run this to swap in ROCm-enabled torch (ROCm 6.4):
-uv pip install torch torchvision \
-  --index-url https://download.pytorch.org/whl/rocm6.4
-
-# Verify ROCm GPU is detected:
-uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-# Expected: 2.x.x+rocm6.4  True
-```
-
 Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/APU GPUs (e.g. Radeon 890M) are **not** supported by ROCm. No code changes are required — PyTorch's ROCm backend reuses the `torch.cuda` API identically.
 
 **Option 2: Local development setup:**
@@ -71,14 +59,19 @@ Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/A
 git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
 
-# Using uv (recommended)
-uv venv
-uv pip install -e .
+# One-time setup — picks backend, syncs, and remembers your choice in .gpu-backend
+./dev setup cuda    # NVIDIA
+./dev setup rocm    # AMD
+./dev setup cpu     # CPU only
 
-# Using traditional pip
+# Then use ./dev run instead of uv run — always uses the right --extra automatically
+./dev run gui_generate.py
+./dev run generate_image.py "prompt"
+
+# Using traditional pip (CUDA example)
 python -m venv .venv
 source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
-pip install -e .
+pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ```
 
 ### Setup Hugging Face Access
@@ -108,7 +101,7 @@ Real-ESRGAN upscaling weights are not on HuggingFace and must be downloaded sepa
 dj-flux2-download
 
 # If using local development setup:
-uv run download_models.py
+./dev run download_models.py
 ```
 
 This downloads (~128 MB total) to `models/realesrgan/`:
@@ -122,8 +115,7 @@ This downloads (~128 MB total) to `models/realesrgan/`:
 dj-flux2 "a cute cat sitting on a windowsill"
 
 # If using local development:
-uv run generate_image.py "a cute cat sitting on a windowsill"
-# Or: python generate_image.py "a cute cat sitting on a windowsill"
+./dev run generate_image.py "a cute cat sitting on a windowsill"
 ```
 
 Output: `output.png`
@@ -139,8 +131,7 @@ For interactive experimentation with real-time preview, use the GUI tool:
 dj-flux2-gui
 
 # Or from the repository directory:
-uv run gui_generate.py
-# Or: python gui_generate.py (with activated venv)
+./dev run gui_generate.py
 ```
 
 **Note:** Install with `uv tool install --editable .` (editable mode) so the tool can access the `flux2/` submodule at runtime. On Windows, additional flags are required to install CUDA-enabled PyTorch — see [Installation Options](#installation-options) above.
@@ -409,10 +400,10 @@ Check GPU is being used (works for both NVIDIA/CUDA and AMD/ROCm):
 import torch
 print(torch.__version__, torch.cuda.is_available())
 # NVIDIA: 2.x.x  True
-# AMD:    2.x.x+rocm6.4  True
+# AMD:    2.x.x+rocm7.2  True
 ```
 
-If `False` on AMD, ensure you installed the ROCm torch wheel — see [AMD GPU (ROCm)](#installation-options) above.
+If `False` on AMD, ensure you installed with `uv sync --extra rocm` — see [Installation Options](#installation-options) above.
 
 ### Model Download Fails
 

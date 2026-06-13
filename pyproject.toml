@@ -10,8 +10,6 @@ authors = [
 license = "MIT"
 
 dependencies = [
-  "torch>=2.8.0",
-  "torchvision>=0.23.0",
   "einops>=0.8.1",
   "transformers>=4.56.1",
   "safetensors>=0.4.5",
@@ -27,6 +25,21 @@ dependencies = [
   "triton-windows>=3.6.0; sys_platform == 'win32'",
 ]
 
+[project.optional-dependencies]
+# Install exactly one of these extras depending on your GPU backend:
+#   ./dev setup cpu          (no GPU, for testing only)
+#   ./dev setup cuda         (NVIDIA GPU, CUDA 12.6)
+#   ./dev setup rocm         (AMD GPU, ROCm 7.2 stable)
+#   ./dev setup rocm-nightly (AMD GPU, ROCm 7.13 nightly — for RDNA4 / gfx120X)
+#
+# rocm-nightly is NOT a uv extra — it is handled entirely by `dev setup rocm-nightly`
+# which uses `uv pip install --index-url` to bypass the lockfile. This is necessary
+# because the nightly index uses pre-release local version specifiers that uv cannot
+# resolve at lock time alongside the stable extras.
+cpu  = ["torch>=2.12.0", "torchvision>=0.27.0"]
+cuda = ["torch>=2.12.0", "torchvision>=0.27.0"]
+rocm = ["torch>=2.12.0", "torchvision>=0.27.0", "triton-rocm>=3.7.0; sys_platform == 'linux'"]
+
 [project.scripts]
 dj-flux2 = "generate_image:main"
 dj-flux2-upscale = "upscale_image:main"
@@ -39,20 +52,45 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 python-preference = "only-managed"
+# Declare the GPU extras as mutually exclusive so uv can resolve them independently.
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "cuda" },
+    { extra = "rocm" },
+  ],
+]
 
-# On Windows, PyPI only serves CPU-only torch wheels.
-# Pull CUDA-enabled wheels from the official PyTorch index instead.
+# Route torch/torchvision to the correct PyTorch index based on which extra is selected.
+# Only one extra should be installed at a time.
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu128", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cpu",    extra = "cpu"  },
+  { index = "pytorch-cu126",  extra = "cuda" },
+  { index = "pytorch-rocm72", extra = "rocm" },
 ]
 torchvision = [
-  { index = "pytorch-cu128", marker = "sys_platform == 'win32'" },
+  { index = "pytorch-cpu",    extra = "cpu"  },
+  { index = "pytorch-cu126",  extra = "cuda" },
+  { index = "pytorch-rocm72", extra = "rocm" },
+]
+triton-rocm = [
+  { index = "pytorch-rocm72", extra = "rocm" },
 ]
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm72"
+url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
 [tool.setuptools]

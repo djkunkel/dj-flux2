@@ -60,3 +60,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.bak
+
+# Machine-specific GPU backend selection — written by: ./dev setup <backend>
+.gpu-backend
