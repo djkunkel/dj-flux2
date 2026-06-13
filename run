@@ -17,7 +17,8 @@
 
 set -euo pipefail
 
-BACKEND_FILE=".gpu-backend"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+BACKEND_FILE="${REPO_DIR}/.gpu-backend"
 
 die()  { echo "error: $*" >&2; exit 1; }
 usage() {
@@ -74,24 +75,24 @@ shift || true
 
 case "$cmd" in
     gui)
-        exec uv run $uv_flags gui_generate.py "$@"
+        exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/gui_generate.py" "$@"
         ;;
     generate)
-        exec uv run $uv_flags generate_image.py "$@"
+        exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/generate_image.py" "$@"
         ;;
     img2img)
         # img2img is generate_image.py with an input image — same script,
         # the -i flag is what switches the mode. This alias makes intent clear.
-        exec uv run $uv_flags generate_image.py "$@"
+        exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/generate_image.py" "$@"
         ;;
     upscale)
-        exec uv run $uv_flags upscale_image.py "$@"
+        exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/upscale_image.py" "$@"
         ;;
     download)
-        exec uv run $uv_flags download_models.py "$@"
+        exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/download_models.py" "$@"
         ;;
     python)
-        exec uv run $uv_flags python "$@"
+        exec uv run --project "$REPO_DIR" $uv_flags python "$@"
         ;;
     ""|--help|-h)
         usage
