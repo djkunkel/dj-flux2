@@ -398,6 +398,36 @@ git commit -m "docs: update README with new parameters"
 git commit -m "chore: update dependencies in uv.lock"
 ```
 
+### 4.5. Versioning and Release Tags
+
+The project follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
+The single source of truth is the `version` field in `pyproject.toml`. The first
+tagged release is `1.2.0`, cut from `main` once the multi-GPU work is merged.
+
+- **MAJOR** — incompatible/breaking changes to the CLI, config format, or behavior.
+- **MINOR** — new functionality added in a backwards-compatible way (e.g. a new
+  model, flag, or upscaling method).
+- **PATCH** — backwards-compatible bug fixes and documentation-only changes.
+
+**Bump the version and cut a git tag only when we are ready for a new version
+to be available to others — not on every commit.** Day-to-day commits land on
+feature branches without touching `version`. **Releases are cut only from
+`main`**, after the work has been merged. When we decide a set of merged changes
+is ready to ship as a release:
+
+1. Make sure you are on `main` with the changes merged in: `git checkout main && git pull`.
+2. Bump `version` in `pyproject.toml` to the new number.
+3. Commit it on its own: `git commit -m "chore: bump version to X.Y.Z"`.
+4. Tag that commit with a `v`-prefixed annotated tag and push both:
+   ```bash
+   git tag -a vX.Y.Z -m "Release X.Y.Z"
+   git push origin main vX.Y.Z
+   ```
+
+The tag name (`vX.Y.Z`) must match the `pyproject.toml` `version` (`X.Y.Z`).
+Do not create release tags speculatively, from feature branches, or for
+work-in-progress.
+
 ### 5. Configuration
 - Use argparse for CLI (already in generate_image.py)
 - Default values should be sensible (512x512, 4 steps, guidance 1.0)
