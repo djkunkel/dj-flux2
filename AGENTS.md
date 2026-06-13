@@ -43,6 +43,7 @@ pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ./run config height 768                          # Set default height
 ./run config steps 4                             # Set default steps
 ./run config guidance 1.0                        # Set default guidance
+./run version                                    # Print the dj-flux2 version
 ```
 
 `./run` reads `.gpu-backend` written by `./setup` to determine the correct

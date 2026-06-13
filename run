@@ -8,6 +8,7 @@
 #   ./run upscale -i in.png -o out.png      Upscale an image
 #   ./run download                          Download models
 #   ./run python <args>                     Run arbitrary python in the venv
+#   ./run version                           Print the dj-flux2 version
 #
 # Reads .gpu-backend written by ./setup to determine which extra to use
 # and which env vars to set. Run ./setup <backend> first.
@@ -21,12 +22,20 @@ REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_FILE="${REPO_DIR}/.gpu-backend"
 CONF_FILE="${REPO_DIR}/.dj-flux2.conf"
 
+# Read the project version straight from pyproject.toml (no venv needed).
+project_version() {
+    grep -m1 '^version *= *' "${REPO_DIR}/pyproject.toml" \
+        | sed -E 's/^version *= *"([^"]+)".*/\1/'
+}
+
 # Valid config keys and their constraints (used by the config subcommand)
 VALID_MODELS="flux.2-klein-4b flux.2-klein-9b flux.2-klein-9b-kv flux.2-klein-base-4b flux.2-klein-base-9b"
 DISTILLED_MODELS="flux.2-klein-4b flux.2-klein-9b flux.2-klein-9b-kv"
 
 die()  { echo "error: $*" >&2; exit 1; }
 usage() {
+    echo "dj-flux2 $(project_version)"
+    echo ""
     echo "Usage: ./run <command> [args]"
     echo ""
     echo "Commands:"
@@ -37,10 +46,20 @@ usage() {
     echo "  download              Download models"
     echo "  config [key [value]]  View or set default config (model, steps, guidance, width, height)"
     echo "  python    <args>      Run arbitrary python in the project venv"
+    echo "  version               Print the dj-flux2 version"
     echo ""
     echo "Run ./setup <backend> first if you haven't already."
     exit 1
 }
+
+# Handle version queries before anything else — these don't need a backend
+# or the venv, so they work even before ./setup has been run.
+case "${1:-}" in
+    version|--version|-V)
+        echo "dj-flux2 $(project_version)"
+        exit 0
+        ;;
+esac
 
 # Read .gpu-backend
 if [[ ! -f "$BACKEND_FILE" ]]; then
