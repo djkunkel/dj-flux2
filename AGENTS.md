@@ -361,6 +361,33 @@ On Linux with the ROCm torch wheel, `triton` is included as a dependency of torc
 - Scripts insert `flux2/src` into `sys.path` at the top for runtime resolution
 - Document any BFL API usage in comments
 
+#### Checking for submodule updates
+
+When working on the project, it's worth checking whether the upstream BFL
+`flux2` submodule has new commits, and incorporating them **if they are safe**:
+
+1. Check what's new upstream:
+   ```bash
+   git -C flux2 fetch
+   git -C flux2 log --oneline HEAD..origin/main
+   ```
+2. Review the incoming changes before pulling them in. Safe to incorporate
+   means: no breaking changes to the BFL APIs we call (`load_flow_model`,
+   `load_text_encoder`, `load_ae`, `denoise`, `FLUX2_MODEL_INFO`, etc.), no new
+   required dependencies we don't already have, and nothing that changes model
+   behavior in a way we don't want. When in doubt, skip the update and ask.
+3. If safe, bump the pin and commit the pointer (do NOT edit submodule files):
+   ```bash
+   git -C flux2 checkout origin/main   # or a specific reviewed commit
+   git add flux2
+   git commit -m "chore: update flux2 submodule to <short-sha> (<summary>)"
+   ```
+4. Test generation end-to-end after bumping — new submodule revisions can
+   change `FLUX2_MODEL_INFO` (e.g. added models) or the sampling path.
+
+Only upgrade when actively working on the project, never as a drive-by change,
+and never pull in an update you haven't reviewed.
+
 ### 3. Documentation First
 - Update README.md for user-facing changes
 - Keep docs in sync with code changes
