@@ -325,10 +325,11 @@ This makes the GUI perfect for iterative workflows where you generate multiple i
 **Native generation:**
 - **Minimum**: 64x64
 - **Default**: 512x512
-- **Maximum**: Limited by GPU VRAM
+- **Model maximum**: 4 megapixels, e.g. 2048x2048 (any aspect ratio)
+- **Practical maximum**: Limited by GPU VRAM
   - 12GB VRAM: Up to 1024x1024
   - 16GB VRAM: Up to 1280x1280
-  - 24GB+ VRAM: Up to 1792x1792 (model maximum)
+  - 24GB+ VRAM: Up to 2048x2048 (the model's 4MP ceiling)
 
 **With upscaling:**
 
