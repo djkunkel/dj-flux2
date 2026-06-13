@@ -11,7 +11,7 @@ if str(_flux2_src) not in sys.path:
     sys.path.insert(0, str(_flux2_src))
 
 from flux2.util import FLUX2_MODEL_INFO
-from generate_image import SUPPORTED_MODELS, DEFAULT_MODEL
+from generate_image import SUPPORTED_MODELS, DEFAULT_MODEL, read_config
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -237,6 +237,7 @@ class LeftConfigPanel(QWidget):
         self._img2img_prompt: str = self._DEFAULT_IMG2IMG_PROMPT
         self._setup_ui()
         self._connect_internal_signals()
+        self._apply_config_defaults()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -476,6 +477,58 @@ class LeftConfigPanel(QWidget):
         layout.addWidget(self._unload_models_btn)
         return layout
 
+    def _apply_config_defaults(self):
+        """Pre-populate controls from .dj-flux2.conf if present.
+
+        Config values only apply where the key is explicitly set.
+        Unrecognised keys and parse errors are silently skipped.
+        The distilled-model warning is deferred to _apply_model_param_constraints
+        which already runs after every model change.
+        """
+        cfg = read_config()
+        if not cfg:
+            return
+
+        if "model" in cfg and cfg["model"] in SUPPORTED_MODELS:
+            self.set_model(cfg["model"])  # also runs _apply_model_param_constraints
+
+        if "width" in cfg:
+            try:
+                w = str(int(cfg["width"]))
+                # Add to combo if not already present (e.g. non-standard size)
+                if self._width_combo.findText(w) == -1:
+                    self._width_combo.addItem(w)
+                self._width_combo.setCurrentText(w)
+            except ValueError:
+                pass
+
+        if "height" in cfg:
+            try:
+                h = str(int(cfg["height"]))
+                if self._height_combo.findText(h) == -1:
+                    self._height_combo.addItem(h)
+                self._height_combo.setCurrentText(h)
+            except ValueError:
+                pass
+
+        # steps/guidance: only set when the current model allows them.
+        # _apply_model_param_constraints already ran (via set_model above or
+        # the constructor's initial call), so the spinboxes reflect the right
+        # enabled/disabled state.  We set the value regardless — if the model
+        # is distilled, the spinbox is disabled but still shows the config value,
+        # which matches what _apply_model_param_constraints does with model defaults.
+        if "steps" in cfg:
+            try:
+                self._steps_spin.setValue(int(cfg["steps"]))
+            except ValueError:
+                pass
+
+        if "guidance" in cfg:
+            try:
+                self._guidance_spin.setValue(float(cfg["guidance"]))
+            except ValueError:
+                pass
+
     # ------------------------------------------------------------------
     # Internal signal wiring
     # ------------------------------------------------------------------
@@ -538,14 +591,17 @@ class LeftConfigPanel(QWidget):
         fixed = info.get("fixed_params", set())
         defaults = info["defaults"]
 
+        cfg = read_config()
+
         # Steps
         steps_fixed = "num_steps" in fixed
         self._steps_spin.setValue(defaults["num_steps"])
         self._steps_spin.setEnabled(not steps_fixed)
         if steps_fixed:
-            self._steps_spin.setToolTip(
-                f"Fixed at {defaults['num_steps']} for {model_name} (distilled model)."
-            )
+            tip = f"Fixed at {defaults['num_steps']} for {model_name} (distilled model)."
+            if "steps" in cfg:
+                tip += f"\nNote: config value ({cfg['steps']}) is ignored for this model."
+            self._steps_spin.setToolTip(tip)
         else:
             self._steps_spin.setToolTip("")
 
@@ -554,9 +610,10 @@ class LeftConfigPanel(QWidget):
         self._guidance_spin.setValue(defaults["guidance"])
         self._guidance_spin.setEnabled(not guidance_fixed)
         if guidance_fixed:
-            self._guidance_spin.setToolTip(
-                f"Not used by {model_name} (distilled — guidance is baked in)."
-            )
+            tip = f"Not used by {model_name} (distilled — guidance is baked in)."
+            if "guidance" in cfg:
+                tip += f"\nNote: config value ({cfg['guidance']}) is ignored for this model."
+            self._guidance_spin.setToolTip(tip)
         else:
             self._guidance_spin.setToolTip("")
 
@@ -669,7 +726,7 @@ class LeftConfigPanel(QWidget):
             self._unload_models_btn.setEnabled(False)
 
     def reset_to_defaults(self):
-        """Reset all controls to default values"""
+        """Reset all controls to config defaults (or built-in defaults if no config)"""
         # Reset stored prompts for both modes
         self._txt2img_prompt = self._DEFAULT_TXT2IMG_PROMPT
         self._img2img_prompt = self._DEFAULT_IMG2IMG_PROMPT
@@ -678,10 +735,22 @@ class LeftConfigPanel(QWidget):
             self._prompt_text.setPlainText(self._img2img_prompt)
         else:
             self._prompt_text.setPlainText(self._txt2img_prompt)
-        # Reset model to default (triggers constraint update via signal)
-        self.set_model(DEFAULT_MODEL)
-        self._width_combo.setCurrentText("512")
-        self._height_combo.setCurrentText("512")
+        # Reset to config defaults (same as initial launch)
+        cfg = read_config()
+        model = cfg.get("model", DEFAULT_MODEL) if cfg.get("model") in SUPPORTED_MODELS else DEFAULT_MODEL
+        self.set_model(model)
+        self._width_combo.setCurrentText(cfg.get("width", "512"))
+        self._height_combo.setCurrentText(cfg.get("height", "512"))
+        if "steps" in cfg:
+            try:
+                self._steps_spin.setValue(int(cfg["steps"]))
+            except ValueError:
+                pass
+        if "guidance" in cfg:
+            try:
+                self._guidance_spin.setValue(float(cfg["guidance"]))
+            except ValueError:
+                pass
         self._seed_combo.setCurrentText("Random")
         self._upscale_check.setChecked(False)
         self._scale_2x.setChecked(True)

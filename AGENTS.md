@@ -37,6 +37,12 @@ pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ./run img2img "style prompt" -i input.png        # Image-to-image
 ./run upscale -i input.png -o output.png         # Upscale existing image
 ./run download                                   # Download models
+./run config                                     # Show current config
+./run config model flux.2-klein-9b               # Set default model
+./run config width 768                           # Set default width
+./run config height 768                          # Set default height
+./run config steps 4                             # Set default steps
+./run config guidance 1.0                        # Set default guidance
 ```
 
 `./run` reads `.gpu-backend` written by `./setup` to determine the correct
@@ -167,13 +173,19 @@ Project root only:
 ├── gui_generate.py      # GUI business logic: FluxGUI, GuiState, GenerationWorker
 ├── gui_components.py    # GUI widget classes: ImagePreviewPanel, LeftConfigPanel,
 │                        #   RightImagePanel, open_image_file_dialog
-├── generate_image.py    # Main inference script + ModelCache singleton
+├── generate_image.py    # Main inference script + ModelCache singleton + read_config()
 ├── upscale_image.py     # Upscaling (Lanczos + Real-ESRGAN via Spandrel)
 ├── download_models.py   # Model downloader (FLUX + Real-ESRGAN)
 ├── pyrightconfig.json   # IDE/LSP config pointing at flux2/src
 ├── pyproject.toml       # Dependencies and entry points
+├── setup                # One-time install script (writes .gpu-backend + ~/.local/bin/dj-flux2)
+├── run                  # Launch script (reads .gpu-backend, dispatches commands)
 ├── CLEANUP.md           # Tracks known bugs and fixes (all items currently done)
 └── *.md                 # Documentation
+
+Gitignored machine-local files (never commit):
+├── .gpu-backend         # Written by ./setup — stores the active GPU backend
+└── .dj-flux2.conf       # Written by ./run config — stores user defaults
 
 Do NOT add:
 - test/ directory (no test framework yet)

@@ -61,5 +61,6 @@ Thumbs.db
 *.tmp
 *.bak
 
-# Machine-specific GPU backend selection — written by: ./dev setup <backend>
+# Machine-specific config — written by: ./setup and ./run config
 .gpu-backend
+.dj-flux2.conf

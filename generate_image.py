@@ -42,6 +42,31 @@ DEFAULT_MODEL = "flux.2-klein-4b"
 # All Klein variants share the flux.2-dev autoencoder weights.
 AE_MODEL_NAME = "flux.2-dev"
 
+# Config file written by ./run config
+CONF_FILE = script_dir / ".dj-flux2.conf"
+
+
+def read_config() -> dict:
+    """Read .dj-flux2.conf and return a dict of set keys.
+
+    Only keys that are explicitly present in the file are returned.
+    Unset keys are absent from the dict — callers use .get() with their
+    own fallback, so CLI flags always take precedence over config.
+
+    Returns:
+        Dict with any subset of: model, steps, guidance, width, height
+    """
+    config = {}
+    if not CONF_FILE.exists():
+        return config
+    for line in CONF_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        config[key.strip()] = value.strip()
+    return config
+
 
 class ModelCache:
     """Singleton cache for FLUX models - load once, reuse many times
@@ -403,15 +428,15 @@ Examples:
         "-m",
         "--model",
         type=str,
-        default=DEFAULT_MODEL,
+        default=None,
         choices=SUPPORTED_MODELS,
-        help=f"Model to use (default: {DEFAULT_MODEL})",
+        help=f"Model to use (default from config, or {DEFAULT_MODEL})",
     )
     parser.add_argument(
-        "-W", "--width", type=int, default=512, help="Image width (default: 512)"
+        "-W", "--width", type=int, default=None, help="Image width (default from config, or 512)"
     )
     parser.add_argument(
-        "-H", "--height", type=int, default=512, help="Image height (default: 512)"
+        "-H", "--height", type=int, default=None, help="Image height (default from config, or 512)"
     )
     parser.add_argument(
         "-s",
@@ -446,6 +471,24 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Apply config file defaults for any value the user didn't explicitly pass.
+    # CLI flags always win; config fills in the gaps; built-in defaults are last.
+    cfg = read_config()
+
+    if args.model is None:
+        args.model = cfg.get("model", DEFAULT_MODEL)
+    if args.width is None:
+        args.width = int(cfg.get("width", 512))
+    if args.height is None:
+        args.height = int(cfg.get("height", 512))
+    # steps and guidance are already None by default — config fills them in
+    # so they reach generate_image() as explicit values rather than None,
+    # but only if the user didn't pass -s/-g on the command line.
+    if args.steps is None and "steps" in cfg:
+        args.steps = int(cfg["steps"])
+    if args.guidance is None and "guidance" in cfg:
+        args.guidance = float(cfg["guidance"])
 
     generate_kwargs = dict(
         prompt=args.prompt,

@@ -19,6 +19,11 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_FILE="${REPO_DIR}/.gpu-backend"
+CONF_FILE="${REPO_DIR}/.dj-flux2.conf"
+
+# Valid config keys and their constraints (used by the config subcommand)
+VALID_MODELS="flux.2-klein-4b flux.2-klein-9b flux.2-klein-9b-kv flux.2-klein-base-4b flux.2-klein-base-9b"
+DISTILLED_MODELS="flux.2-klein-4b flux.2-klein-9b flux.2-klein-9b-kv"
 
 die()  { echo "error: $*" >&2; exit 1; }
 usage() {
@@ -30,6 +35,7 @@ usage() {
     echo "  img2img   <prompt>    Image-to-image transformation (requires -i input.png)"
     echo "  upscale               Upscale an image (requires -i input.png -o output.png)"
     echo "  download              Download models"
+    echo "  config [key [value]]  View or set default config (model, steps, guidance, width, height)"
     echo "  python    <args>      Run arbitrary python in the project venv"
     echo ""
     echo "Run ./setup <backend> first if you haven't already."
@@ -70,6 +76,86 @@ else
     uv_flags="--extra ${uv_extra}"
 fi
 
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+
+conf_read() {
+    # Read a key from .dj-flux2.conf, print its value, or empty string if unset
+    local key="$1"
+    [[ -f "$CONF_FILE" ]] || return 0
+    grep -m1 "^${key}=" "$CONF_FILE" | cut -d= -f2- || true
+}
+
+conf_write() {
+    # Set key=value in .dj-flux2.conf, creating or updating the entry
+    local key="$1" value="$2"
+    if [[ -f "$CONF_FILE" ]] && grep -q "^${key}=" "$CONF_FILE"; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$CONF_FILE"
+    else
+        echo "${key}=${value}" >> "$CONF_FILE"
+    fi
+}
+
+conf_print_all() {
+    echo "Config file: ${CONF_FILE}"
+    echo ""
+    if [[ ! -f "$CONF_FILE" ]]; then
+        echo "  (no config set — all values use built-in defaults)"
+        return
+    fi
+    local content
+    content=$(grep -v '^\s*$' "$CONF_FILE" 2>/dev/null || true)
+    if [[ -z "$content" ]]; then
+        echo "  (no config set — all values use built-in defaults)"
+    else
+        echo "$content"
+    fi
+}
+
+conf_validate_model() {
+    local value="$1"
+    for m in $VALID_MODELS; do
+        [[ "$m" == "$value" ]] && return 0
+    done
+    die "Invalid model '${value}'. Valid models: $(echo $VALID_MODELS | tr ' ' ', ')"
+}
+
+conf_validate_positive_int() {
+    local key="$1" value="$2"
+    [[ "$value" =~ ^[0-9]+$ ]] || die "${key} must be a positive integer (got '${value}')"
+    (( value > 0 )) || die "${key} must be greater than 0 (got '${value}')"
+}
+
+conf_validate_positive_float() {
+    local key="$1" value="$2"
+    [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "${key} must be a positive number (got '${value}')"
+    # Use awk for float comparison
+    awk -v v="$value" 'BEGIN { if (v <= 0) exit 1 }' || die "${key} must be greater than 0 (got '${value}')"
+}
+
+conf_validate_dimension() {
+    local key="$1" value="$2"
+    [[ "$value" =~ ^[0-9]+$ ]] || die "${key} must be a positive integer (got '${value}')"
+    (( value > 0 )) || die "${key} must be greater than 0"
+    (( value <= 2048 )) || die "${key} must be 2048 or under (got '${value}')"
+    (( value % 16 == 0 )) || echo "warning: ${key}=${value} is not a multiple of 16; FLUX may round it" >&2
+}
+
+conf_warn_if_distilled() {
+    local key="$1" model
+    model=$(conf_read model)
+    [[ -z "$model" ]] && return 0
+    for m in $DISTILLED_MODELS; do
+        if [[ "$m" == "$model" ]]; then
+            echo "warning: '${key}' is ignored for distilled model '${model}' (guidance and steps are baked in)" >&2
+            return 0
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+
 cmd="${1:-}"
 shift || true
 
@@ -93,6 +179,60 @@ case "$cmd" in
         ;;
     python)
         exec uv run --project "$REPO_DIR" $uv_flags python "$@"
+        ;;
+    config)
+        config_key="${1:-}"
+        config_val="${2:-}"
+
+        if [[ -z "$config_key" ]]; then
+            conf_print_all
+            exit 0
+        fi
+
+        # Getter: ./run config <key>
+        if [[ -z "$config_val" ]]; then
+            value=$(conf_read "$config_key")
+            if [[ -z "$value" ]]; then
+                echo "${config_key}: (not set)"
+            else
+                echo "${config_key}=${value}"
+            fi
+            exit 0
+        fi
+
+        # Setter: ./run config <key> <value>
+        case "$config_key" in
+            model)
+                conf_validate_model "$config_val"
+                conf_write model "$config_val"
+                echo "model=${config_val}"
+                ;;
+            steps)
+                conf_validate_positive_int steps "$config_val"
+                conf_write steps "$config_val"
+                echo "steps=${config_val}"
+                conf_warn_if_distilled steps
+                ;;
+            guidance)
+                conf_validate_positive_float guidance "$config_val"
+                conf_write guidance "$config_val"
+                echo "guidance=${config_val}"
+                conf_warn_if_distilled guidance
+                ;;
+            width)
+                conf_validate_dimension width "$config_val"
+                conf_write width "$config_val"
+                echo "width=${config_val}"
+                ;;
+            height)
+                conf_validate_dimension height "$config_val"
+                conf_write height "$config_val"
+                echo "height=${config_val}"
+                ;;
+            *)
+                die "Unknown config key '${config_key}'. Valid keys: model, steps, guidance, width, height"
+                ;;
+        esac
         ;;
     ""|--help|-h)
         usage

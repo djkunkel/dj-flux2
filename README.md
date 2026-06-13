@@ -339,6 +339,25 @@ Text Prompt → Qwen3 encoder → FLUX.2 Klein transformer → VAE Decoder → I
 
 The VRAM choreography keeps at most one large model on GPU at a time: the text encoder and autoencoder are swapped to CPU during the transformer's denoising pass, then the transformer returns to CPU before the autoencoder decodes the result.
 
+## Configuration
+
+Set persistent defaults so you don't have to repeat flags on every command:
+
+```bash
+./run config                          # Show current settings
+./run config model flux.2-klein-9b    # Set default model
+./run config width 768                # Set default width
+./run config height 768               # Set default height
+./run config steps 4                  # Set default steps
+./run config guidance 1.0             # Set default guidance
+```
+
+Settings are stored in `.dj-flux2.conf` (gitignored) next to the repo. CLI flags always override config, so `-m`, `-W`, `-H`, `-s`, `-g` still work as usual.
+
+The GUI reads the same config on launch and pre-populates all controls. **Clear** also restores config defaults rather than hardcoded values.
+
+**Note:** `steps` and `guidance` are ignored by distilled models (`flux.2-klein-4b`, `flux.2-klein-9b`, `flux.2-klein-9b-kv`) — a warning is shown when you set them for a distilled model.
+
 ## Troubleshooting
 
 ### Out of Memory
