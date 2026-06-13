@@ -363,7 +363,6 @@ On Linux with the ROCm torch wheel, `triton` is included as a dependency of torc
 
 ### 3. Documentation First
 - Update README.md for user-facing changes
-- Update QUICK-START.md for workflow changes
 - Keep docs in sync with code changes
 - No stale documentation
 
@@ -445,7 +444,6 @@ class ImageMetadataManager:
 ## Resources
 
 - **Main Docs**: README.md (user guide)
-- **Quick Start**: QUICK-START.md (rapid onboarding)
 - **Bug history**: CLEANUP.md (static analysis findings — all resolved)
 - **BFL Source**: flux2/src/flux2/ (reference only, do not modify)
 
