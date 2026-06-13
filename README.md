@@ -25,55 +25,30 @@ Minimal FLUX.2 Klein image generation with GPU support (NVIDIA/CUDA and AMD/ROCm
 
 ### Installation Options
 
-**Option 1: Install as a global tool (Recommended for all users):**
+**Setup:**
 ```bash
 git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
 
-# Linux — NVIDIA GPU (CUDA 12.6):
-uv tool install --editable ".[cuda]"
-
-# Linux — AMD GPU (ROCm 7.2):
-uv tool install --editable ".[rocm]"
-
-# Windows (CUDA) — uv tool install resolves independently from the project
-# venv, so the PyTorch CUDA index must be passed explicitly:
-uv tool install --editable ".[cuda]" \
-  --index https://download.pytorch.org/whl/cu126 \
-  --index-strategy unsafe-best-match \
-  --reinstall-package torch \
-  --reinstall-package torchvision \
-  --reinstall-package triton-windows
-
-# All commands become available globally:
-dj-flux2 "your prompt"
-dj-flux2-gui              # Launch GUI
-dj-flux2-upscale -i input.png -o output.png
-dj-flux2-download
-```
-
-Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/APU GPUs (e.g. Radeon 890M) are **not** supported by ROCm. No code changes are required — PyTorch's ROCm backend reuses the `torch.cuda` API identically.
-
-**Option 2: Local development setup:**
-```bash
-git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
-cd dj-flux2
-
-# One-time setup per machine — writes .gpu-backend and installs wheels
+# One-time setup per machine — installs wheels, writes .gpu-backend,
+# and puts dj-flux2 in ~/.local/bin so it works from any directory
 ./setup cuda         # NVIDIA GPU (CUDA 12.6)
-./setup rocm         # AMD GPU, ROCm 7.2 stable
+./setup rocm         # AMD GPU, ROCm 7.2 stable (RDNA 2/3)
 ./setup rocm-nightly # AMD RDNA4 (RX 9700), ROCm 7.13 nightly
 ./setup cpu          # CPU only
 
-# Then use ./run for all commands
+# Then use ./run from the repo, or dj-flux2 from anywhere
 ./run gui
 ./run generate "prompt"
+dj-flux2 generate "prompt"   # from any directory
 
 # Using traditional pip (CUDA example)
 python -m venv .venv
 source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
 pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ```
+
+Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/APU GPUs (e.g. Radeon 890M) are **not** supported by ROCm. No code changes are required — PyTorch's ROCm backend reuses the `torch.cuda` API identically.
 
 ### Setup Hugging Face Access
 
@@ -98,11 +73,9 @@ FLUX.2 Klein models are gated and require accepting license terms before first u
 Real-ESRGAN upscaling weights are not on HuggingFace and must be downloaded separately before using `--upscale-method realesrgan`:
 
 ```bash
-# If installed as a tool:
-dj-flux2-download
-
-# If using local development setup:
 ./run download
+# or from any directory:
+dj-flux2 download
 ```
 
 This downloads (~128 MB total) to `models/realesrgan/`:
@@ -112,11 +85,9 @@ This downloads (~128 MB total) to `models/realesrgan/`:
 ### Generate Your First Image
 
 ```bash
-# If installed as a tool:
-dj-flux2 "a cute cat sitting on a windowsill"
-
-# If using local development:
 ./run generate "a cute cat sitting on a windowsill"
+# or from any directory:
+dj-flux2 generate "a cute cat sitting on a windowsill"
 ```
 
 Output: `output.png`
@@ -128,14 +99,12 @@ Output: `output.png`
 For interactive experimentation with real-time preview, use the GUI tool:
 
 ```bash
-# If installed as a tool (recommended):
-dj-flux2-gui
-
-# Or from the repository directory:
 ./run gui
+# or from any directory:
+dj-flux2 gui
 ```
 
-**Note:** Install with `uv tool install --editable .` (editable mode) so the tool can access the `flux2/` submodule at runtime. On Windows, additional flags are required to install CUDA-enabled PyTorch — see [Installation Options](#installation-options) above.
+**Note:** Run `./setup <backend>` once after cloning. This installs the correct GPU wheel and writes `~/.local/bin/dj-flux2` so the GUI can also be launched with `dj-flux2 gui` from any directory.
 
 **The GUI provides:**
 - **Two modes**: Text-to-Image and Image-to-Image
@@ -165,55 +134,48 @@ dj-flux2-gui
 
 This project supports multiple ways to run commands:
 
-**Option 1: Installed as a tool (simplest):**
+**`dj-flux2` (from any directory, after `./setup`):**
 ```bash
-dj-flux2 "prompt"
-dj-flux2-gui                  # Launch GUI
-dj-flux2-upscale -i input.png -o output.png
-dj-flux2-download
+dj-flux2 generate "prompt"
+dj-flux2 gui
+dj-flux2 upscale -i input.png -o output.png
+dj-flux2 download
 ```
-- ✅ Available globally, no need to cd into project directory
-- ✅ No virtual environment activation needed
-- ✅ Clean command names
-- ✅ All tools including GUI work globally
+- ✅ Works from any directory (installed to `~/.local/bin` by `./setup`)
+- ✅ Always uses the correct GPU backend and env vars
+- ✅ Thin wrapper around `./run` — no separate environment
 
-**Option 2: Using `./run` (for development):**
+**`./run` (from the repo directory):**
 ```bash
 ./run generate "prompt"
 ./run gui
 ./run upscale -i input.png -o output.png
 ```
-- ✅ No need to activate virtual environment
-- ✅ Always uses the correct GPU backend
-- ✅ Good for testing changes during development
+- ✅ Same behaviour as `dj-flux2`, directly in the repo
 
-**Option 3: Activated virtual environment**
+**Activated virtual environment:**
 ```bash
 source .venv/bin/activate  # Activate once per terminal session
 python generate_image.py "prompt"
-python gui_generate.py  # GUI
+python gui_generate.py
 python upscale_image.py -i input.png -o output.png
 ```
-- ✅ Traditional Python workflow
-- ✅ Works with any tool (not just uv)
-
-> **Note:** Always install with `uv tool install --editable .` (not plain `uv tool install .`) so the flux2 submodule is accessible at runtime. On Windows, use the extended install command in [Installation Options](#installation-options) to get CUDA-enabled PyTorch.
+- ✅ Traditional Python workflow, useful for debugging
 
 ### Text-to-Image
 
 ```bash
 # Basic usage (default 512x512)
-dj-flux2 "a majestic mountain landscape at sunset"
-# Or: ./run generate "a majestic mountain landscape at sunset"
+dj-flux2 generate "a majestic mountain landscape at sunset"
 
 # With custom output path
-dj-flux2 "a robot" -o my_robot.png
+dj-flux2 generate "a robot" -o my_robot.png
 
 # Native high resolution (requires 16GB+ VRAM)
-dj-flux2 "detailed portrait" -W 1024 -H 1024
+dj-flux2 generate "detailed portrait" -W 1024 -H 1024
 
 # Reproducible with seed
-dj-flux2 "abstract art" -S 42
+dj-flux2 generate "abstract art" -S 42
 ```
 
 ### High-Resolution Generation
@@ -222,28 +184,28 @@ dj-flux2 "abstract art" -S 42
 
 **1. Native generation** (if you have 16GB+ VRAM):
 ```bash
-dj-flux2 "detailed cityscape" -W 1024 -H 1024
+dj-flux2 generate "detailed cityscape" -W 1024 -H 1024
 ```
 
 **2. Lanczos upscaling** (fast, CPU-based):
 ```bash
-dj-flux2 "detailed cityscape" --upscale 2 --upscale-method lanczos
-dj-flux2 "epic landscape" --upscale 4 --upscale-method lanczos
+dj-flux2 generate "detailed cityscape" --upscale 2 --upscale-method lanczos
+dj-flux2 generate "epic landscape" --upscale 4 --upscale-method lanczos
 ```
 
 **3. AI upscaling with Real-ESRGAN** (best quality, default when using --upscale):
 ```bash
 # First, download the AI upscaling models (~128 MB)
-dj-flux2-download --upscale-only
+dj-flux2 download --upscale-only
 
 # Generate and AI upscale to 1024x1024 in one step (default)
-dj-flux2 "detailed cityscape" -o output.png --upscale 2
+dj-flux2 generate "detailed cityscape" -o output.png --upscale 2
 
 # Generate and AI upscale to 2048x2048 in one step
-dj-flux2 "epic landscape" -o output.png --upscale 4
+dj-flux2 generate "epic landscape" -o output.png --upscale 4
 
 # Or explicitly use Lanczos for faster CPU-based upscaling
-dj-flux2 "detailed cityscape" -o output.png --upscale 2 --upscale-method lanczos
+dj-flux2 generate "detailed cityscape" -o output.png --upscale 2 --upscale-method lanczos
 ```
 
 > **Note:** When using `--upscale`, only the final upscaled image is saved to your output path. A temporary intermediate image is used during processing and automatically deleted.
@@ -251,10 +213,10 @@ dj-flux2 "detailed cityscape" -o output.png --upscale 2 --upscale-method lanczos
 **Upscale existing images:**
 ```bash
 # Lanczos (fast, CPU)
-dj-flux2-upscale -i input.png -o output.png --scale 2
+dj-flux2 upscale -i input.png -o output.png --scale 2
 
 # AI upscaling (better quality, GPU)
-dj-flux2-upscale -i input.png -o output.png --scale 2 --method realesrgan
+dj-flux2 upscale -i input.png -o output.png --scale 2 --method realesrgan
 ```
 
 **Quality comparison:**
@@ -267,22 +229,22 @@ Transform existing images:
 
 ```bash
 # Turn photo into oil painting
-dj-flux2 "oil painting in impressionist style" -i photo.jpg -o painting.png
+dj-flux2 generate "oil painting in impressionist style" -i photo.jpg -o painting.png
 
 # Convert to pencil sketch
-dj-flux2 "pencil sketch, detailed line art, black and white" -i portrait.jpg -o sketch.png
+dj-flux2 generate "pencil sketch, detailed line art, black and white" -i portrait.jpg -o sketch.png
 
 # Style transfer
-dj-flux2 "watercolor painting with soft colors" -i landscape.jpg -o watercolor.png
+dj-flux2 generate "watercolor painting with soft colors" -i landscape.jpg -o watercolor.png
 ```
 
 ### All Options
 
 ```bash
-dj-flux2 --help
-dj-flux2-gui              # Launch GUI (no options)
-dj-flux2-upscale --help
-dj-flux2-download --help
+dj-flux2 generate --help
+dj-flux2 gui              # Launch GUI (no options)
+dj-flux2 upscale --help
+dj-flux2 download --help
 ```
 
 ```

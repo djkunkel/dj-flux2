@@ -27,24 +27,18 @@ dependencies = [
 
 [project.optional-dependencies]
 # Install exactly one of these extras depending on your GPU backend:
-#   ./dev setup cpu          (no GPU, for testing only)
-#   ./dev setup cuda         (NVIDIA GPU, CUDA 12.6)
-#   ./dev setup rocm         (AMD GPU, ROCm 7.2 stable)
-#   ./dev setup rocm-nightly (AMD GPU, ROCm 7.13 nightly — for RDNA4 / gfx120X)
+#   ./setup cpu          (no GPU, for testing only)
+#   ./setup cuda         (NVIDIA GPU, CUDA 12.6)
+#   ./setup rocm         (AMD GPU, ROCm 7.2 stable)
+#   ./setup rocm-nightly (AMD GPU, ROCm 7.13 nightly — for RDNA4 / gfx120X)
 #
-# rocm-nightly is NOT a uv extra — it is handled entirely by `dev setup rocm-nightly`
+# rocm-nightly is NOT a uv extra — it is handled entirely by `./setup rocm-nightly`
 # which uses `uv pip install --index-url` to bypass the lockfile. This is necessary
 # because the nightly index uses pre-release local version specifiers that uv cannot
 # resolve at lock time alongside the stable extras.
 cpu  = ["torch>=2.12.0", "torchvision>=0.27.0"]
 cuda = ["torch>=2.12.0", "torchvision>=0.27.0"]
 rocm = ["torch>=2.12.0", "torchvision>=0.27.0", "triton-rocm>=3.7.0; sys_platform == 'linux'"]
-
-[project.scripts]
-dj-flux2 = "generate_image:main"
-dj-flux2-upscale = "upscale_image:main"
-dj-flux2-download = "download_models:main"
-dj-flux2-gui = "gui_generate:main"
 
 [build-system]
 requires = ["setuptools>=64", "wheel"]
@@ -94,6 +88,4 @@ url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
 [tool.setuptools]
-# Include the main scripts as modules
-py-modules = ["generate_image", "upscale_image", "download_models", "gui_generate", "gui_components"]
 packages = []

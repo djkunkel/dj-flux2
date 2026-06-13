@@ -10,6 +10,9 @@
 # Writes the chosen backend to .gpu-backend (gitignored) so that ./run
 # knows which env vars to set without needing to be told again.
 #
+# Also writes ~/.local/bin/dj-flux2 — a thin wrapper around ./run — so the
+# project can be invoked from any directory.
+#
 # rocm-nightly is handled differently from the other backends: uv cannot
 # resolve the nightly pre-release local version specifiers alongside the
 # stable extras at lock time. Instead, this script syncs the stable rocm
@@ -76,4 +79,18 @@ case "$backend" in
 esac
 
 echo "$backend" > "$BACKEND_FILE"
-echo "Done. Backend set to '$backend'. Use ./run to launch the project."
+
+# Install dj-flux2 into ~/.local/bin as a thin wrapper around ./run so it
+# can be used from any directory.
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN_DIR="${HOME}/.local/bin"
+WRAPPER="${BIN_DIR}/dj-flux2"
+mkdir -p "${BIN_DIR}"
+cat > "${WRAPPER}" <<EOF
+#!/usr/bin/env bash
+exec "${REPO_DIR}/run" "\$@"
+EOF
+chmod +x "${WRAPPER}"
+echo "Installed dj-flux2 -> ${WRAPPER}"
+
+echo "Done. Backend set to '$backend'. Use ./run or dj-flux2 to launch the project."
