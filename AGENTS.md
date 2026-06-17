@@ -19,7 +19,7 @@ Minimal FLUX.2 Klein 4B inference implementation using official BFL code as a gi
 # One-time setup per machine — writes .gpu-backend (gitignored) and installs wheels
 ./setup cuda         # NVIDIA GPU (CUDA 12.6)
 ./setup rocm         # AMD GPU, ROCm 7.2 stable (RDNA 2/3)
-./setup rocm-nightly # AMD RDNA4 (gfx120X / RX 9700), ROCm 7.13 nightly
+./setup rocm-nightly # AMD RDNA4 (gfx120X / RX 9700), ROCm 7.14 nightly (multi-arch)
 ./setup cpu          # CPU only — for testing without a GPU
 
 # Using traditional venv (CUDA example)
@@ -296,7 +296,7 @@ ROCm wheels are hosted at `https://download.pytorch.org/whl/rocm7.2`. The `rocm`
 
 **Important:** Install exactly one of `--extra cpu`, `--extra cuda`, or `--extra rocm`. Installing multiple extras simultaneously will cause uv to attempt resolving torch from conflicting indexes.
 
-#### RDNA4 (gfx120X / RX 9700) — ROCm 7.13 nightly
+#### RDNA4 (gfx120X / RX 9700) — ROCm 7.14 nightly (multi-arch)
 
 ROCm 7.2 stable does not support RDNA4 correctly. Use the `rocm-nightly` backend instead:
 
@@ -304,16 +304,16 @@ ROCm 7.2 stable does not support RDNA4 correctly. Use the `rocm-nightly` backend
 ./setup rocm-nightly
 ```
 
-This installs torch from the AMD per-family nightly index at
-`https://rocm.nightlies.amd.com/v2/gfx120X-all/`, pinned to a specific
-`THEROCK_DATE` build known to work. The date pin and version strings live
-in the `setup` script — update them there when bumping to a newer nightly.
+This installs torch from AMD's multi-arch nightly index at
+`https://rocm.nightlies.amd.com/whl-multi-arch/` using the device-extras
+model. The base torch wheel contains only host code; GPU-specific kernels are
+pulled from a separate `amd-torch-device-gfx1201` package automatically. No
+manual date pin is needed — pip resolves the latest compatible daily build.
 
 `rocm-nightly` is intentionally **not** a uv extra in `pyproject.toml`. The
 nightly index uses pre-release local version specifiers that uv cannot resolve
 at lock time. `./setup rocm-nightly` handles it with `uv pip install
---index-url` after first syncing the stable `rocm` extra for all other deps
-(identical to the approach used in `invokeai-rocm/Dockerfile`).
+--index-url` after first syncing the stable `rocm` extra for all other deps.
 
 `./run` automatically sets the required RDNA4 env vars when `.gpu-backend`
 is `rocm-nightly`:
@@ -325,9 +325,9 @@ is `rocm-nightly`:
 | `MIOPEN_FIND_ENFORCE` | `NONE` | Reduces workspace retention between generations |
 | `PYTORCH_ALLOC_CONF` | `garbage_collection_threshold:0.8,max_split_size_mb:512` | Reduces VRAM fragmentation |
 
-**To update the nightly pin:** edit `THEROCK_DATE`, `TORCH_VER`, and `TV_VER`
-at the top of the `setup` script. Browse the index for available builds:
-`https://rocm.nightlies.amd.com/v2/gfx120X-all/torch/`
+**To update to a newer nightly:** simply re-run `./setup rocm-nightly` — it
+always pulls the latest build. Browse available packages at:
+`https://rocm.nightlies.amd.com/whl-multi-arch/`
 
 #### Verifying ROCm is active
 
@@ -343,7 +343,7 @@ at the top of the `setup` script. Browse the index for available builds:
 
 | GPU family | ROCm support |
 |---|---|
-| RX 9000 series (RDNA 4) | Yes — `rocm-nightly` backend (ROCm 7.13 nightly) |
+| RX 9000 series (RDNA 4) | Yes — `rocm-nightly` backend (ROCm 7.14 nightly) |
 | RX 7000 series (RDNA 3) | Yes — `rocm` backend (ROCm 7.2 stable) |
 | RX 6000 series (RDNA 2) | Yes — `rocm` backend (ROCm 7.2 stable) |
 | RX 5000 series (RDNA 1) | Limited / community patches only |

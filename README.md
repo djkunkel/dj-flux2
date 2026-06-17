@@ -34,7 +34,7 @@ cd dj-flux2
 # and puts dj-flux2 in ~/.local/bin so it works from any directory
 ./setup cuda         # NVIDIA GPU (CUDA 12.6)
 ./setup rocm         # AMD GPU, ROCm 7.2 stable (RDNA 2/3)
-./setup rocm-nightly # AMD RDNA4 (RX 9700), ROCm 7.13 nightly
+./setup rocm-nightly # AMD RDNA4 (RX 9700), ROCm 7.14 nightly (multi-arch)
 ./setup cpu          # CPU only
 
 # Then use ./run from the repo, or dj-flux2 from anywhere
