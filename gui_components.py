@@ -345,14 +345,14 @@ class LeftConfigPanel(QWidget):
         # Width
         layout.addWidget(QLabel("Width:"), 1, 0)
         self._width_combo = QComboBox()
-        self._width_combo.addItems(["256", "512", "768", "1024", "1280", "1536", "1792", "2048"])
+        self._width_combo.addItems(["256", "512", "768", "1024","1080", "1280", "1536", "1792","1920", "2048"])
         self._width_combo.setCurrentText("512")
         layout.addWidget(self._width_combo, 1, 1)
 
         # Height
         layout.addWidget(QLabel("Height:"), 1, 2)
         self._height_combo = QComboBox()
-        self._height_combo.addItems(["256", "512", "768", "1024", "1280", "1536", "1792", "2048"])
+        self._height_combo.addItems(["256", "512", "768", "1024","1080", "1280", "1536", "1792","1920", "2048"])
         self._height_combo.setCurrentText("512")
         layout.addWidget(self._height_combo, 1, 3)
 
