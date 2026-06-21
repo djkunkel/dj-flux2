@@ -18,6 +18,8 @@ dependencies = [
   "accelerate>=1.0.0",
   "spandrel>=0.4.0",
   "PySide6>=6.6.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
   # triton has no official Windows wheels; triton-windows is the community port.
   # It provides the same API and is required by transformers' FP8 quantization
   # (used by the Qwen3-4B-FP8 text encoder). Not needed on Linux, which gets
