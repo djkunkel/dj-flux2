@@ -36,6 +36,8 @@ pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ./run generate "prompt" --upscale 2              # With upscaling
 ./run img2img "style prompt" -i input.png        # Image-to-image
 ./run upscale -i input.png -o output.png         # Upscale existing image
+./run serve                                      # Start HTTP API server (0.0.0.0:8190)
+./run serve --port 9000                          # Custom port
 ./run download                                   # Download models
 ./run config                                     # Show current config
 ./run config model flux.2-klein-9b               # Set default model
@@ -175,6 +177,7 @@ Project root only:
 ├── gui_components.py    # GUI widget classes: ImagePreviewPanel, LeftConfigPanel,
 │                        #   RightImagePanel, open_image_file_dialog
 ├── generate_image.py    # Main inference script + ModelCache singleton + read_config()
+├── serve_api.py         # HTTP API server (FastAPI + uvicorn): job queue, REST + WebSocket
 ├── upscale_image.py     # Upscaling (Lanczos + Real-ESRGAN via Spandrel)
 ├── download_models.py   # Model downloader (FLUX + Real-ESRGAN)
 ├── pyrightconfig.json   # IDE/LSP config pointing at flux2/src
@@ -198,7 +201,7 @@ Do NOT add:
 
 ### 1. Minimal Dependencies
 - Only add dependencies that are absolutely required
-- Currently: torch, torchvision, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, spandrel, PySide6, triton-windows (Windows only)
+- Currently: torch, torchvision, transformers, einops, safetensors, pillow, huggingface-hub, accelerate, spandrel, PySide6, fastapi, uvicorn, triton-windows (Windows only)
 - Do NOT add: fire, click, typer, openai, realesrgan (use spandrel instead), basicsr, gradio, streamlit, PyQt6, tkinterdnd2, or other "nice-to-have" packages
 - **GUI note**: Uses PySide6 (Qt6) for professional cross-platform GUI with proper threading support
 - **Spandrel note**: Use spandrel for AI upscaling instead of realesrgan package to avoid dependency conflicts
@@ -470,7 +473,7 @@ work-in-progress.
 
 ## What NOT to Do
 
-❌ Add heavyweight frameworks (Django, Flask, FastAPI)  
+❌ Add heavyweight frameworks (Django, Flask) — FastAPI is already used by serve_api.py  
 ❌ Create abstractions for 2 scripts (no BaseGenerator class)  
 ❌ Add type checking (mypy, pyright) without discussion  
 ❌ Reformat existing code without reason  

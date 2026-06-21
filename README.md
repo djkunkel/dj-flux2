@@ -157,6 +157,7 @@ This project supports multiple ways to run commands:
 ```bash
 dj-flux2 generate "prompt"
 dj-flux2 gui
+dj-flux2 serve
 dj-flux2 upscale -i input.png -o output.png
 dj-flux2 download
 ```
@@ -168,6 +169,7 @@ dj-flux2 download
 ```bash
 ./run generate "prompt"
 ./run gui
+./run serve
 ./run upscale -i input.png -o output.png
 ```
 - ✅ Same behaviour as `dj-flux2`, directly in the repo
@@ -177,6 +179,7 @@ dj-flux2 download
 source .venv/bin/activate  # Activate once per terminal session
 python generate_image.py "prompt"
 python gui_generate.py
+python serve_api.py
 python upscale_image.py -i input.png -o output.png
 ```
 - ✅ Traditional Python workflow, useful for debugging
@@ -262,6 +265,7 @@ dj-flux2 generate "watercolor painting with soft colors" -i landscape.jpg -o wat
 ```bash
 dj-flux2 generate --help
 dj-flux2 gui              # Launch GUI (no options)
+dj-flux2 serve --help     # Start HTTP API server
 dj-flux2 upscale --help
 dj-flux2 download --help
 ```
@@ -378,6 +382,71 @@ The GUI reads the same config on launch and pre-populates all controls. **Clear*
 
 **Note:** `steps` and `guidance` are ignored by distilled models (`flux.2-klein-4b`, `flux.2-klein-9b`, `flux.2-klein-9b-kv`) — a warning is shown when you set them for a distilled model.
 
+## HTTP API Server
+
+Start a REST API server for programmatic image generation:
+
+```bash
+./run serve                  # Start on 0.0.0.0:8190 (default)
+./run serve --port 9000      # Custom port
+```
+
+Interactive API documentation is available at `http://localhost:8190/docs` once the server is running.
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/generate` | Submit a generation request (returns a token) |
+| `GET` | `/status/{token}` | Check job status and progress |
+| `GET` | `/result/{token}` | Download the completed image (PNG) |
+| `GET` | `/queue` | List all jobs and their statuses |
+| `POST` | `/cancel/{token}` | Cancel a queued job |
+| `GET` | `/models` | List supported models and loaded model info |
+| `WS` | `/ws/{token}` | WebSocket for real-time progress updates |
+
+### Example Usage
+
+```bash
+# Submit a generation request
+curl -X POST http://localhost:8190/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "a castle on a hill", "width": 512, "height": 512}'
+# → {"token": "a3f2b1c4..."}
+
+# Check status
+curl http://localhost:8190/status/a3f2b1c4...
+
+# Download the result (once completed)
+curl http://localhost:8190/result/a3f2b1c4... -o castle.png
+
+# List available models
+curl http://localhost:8190/models
+
+# Cancel a queued job
+curl -X POST http://localhost:8190/cancel/a3f2b1c4...
+```
+
+### Job Queue
+
+Jobs are processed sequentially, ordered by **model name first** (to minimise GPU model reloads between jobs), then by submission time (FIFO). The queue accepts up to 50 pending jobs before returning `429 Too Many Requests`.
+
+Generated images are stored in the `output/` directory with timecoded filenames (e.g., `output/20260620_143015_a3f2b1c4.png`).
+
+### WebSocket Progress
+
+Connect to `/ws/{token}` after submitting a job to receive real-time progress updates:
+
+```
+ws://localhost:8190/ws/{token}
+```
+
+Messages are JSON objects with a `type` field:
+- `{"type": "progress", "status": "queued", "queue_position": 3, "progress": "Queued"}`
+- `{"type": "progress", "status": "running", "queue_position": null, "progress": "Generating image..."}`
+- `{"type": "complete", "status": "completed", "seed": 42, "error": null}`
+- `{"type": "error", "status": "failed", "seed": null, "error": "GPU out of memory..."}`
+
 ## Troubleshooting
 
 ### Out of Memory
@@ -430,6 +499,7 @@ dj-flux2/
 ├── generate_image.py      # Main inference script + ModelCache
 ├── gui_generate.py        # GUI application logic (PySide6/Qt6)
 ├── gui_components.py      # GUI widget layout
+├── serve_api.py           # HTTP API server (FastAPI + uvicorn)
 ├── upscale_image.py       # Lanczos and Real-ESRGAN upscaling
 ├── download_models.py     # Real-ESRGAN model downloader (FLUX models auto-download)
 ├── flux2/                 # BFL submodule (git, do not modify)
