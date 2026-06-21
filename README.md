@@ -158,6 +158,8 @@ This project supports multiple ways to run commands:
 dj-flux2 generate "prompt"
 dj-flux2 gui
 dj-flux2 serve
+dj-flux2 api-generate "prompt" -o out.png
+dj-flux2 skill
 dj-flux2 upscale -i input.png -o output.png
 dj-flux2 download
 ```
@@ -170,6 +172,8 @@ dj-flux2 download
 ./run generate "prompt"
 ./run gui
 ./run serve
+./run api-generate "prompt" -o out.png
+./run skill
 ./run upscale -i input.png -o output.png
 ```
 - ✅ Same behaviour as `dj-flux2`, directly in the repo
@@ -180,6 +184,7 @@ source .venv/bin/activate  # Activate once per terminal session
 python generate_image.py "prompt"
 python gui_generate.py
 python serve_api.py
+python api_generate.py "prompt" -o out.png
 python upscale_image.py -i input.png -o output.png
 ```
 - ✅ Traditional Python workflow, useful for debugging
@@ -264,8 +269,10 @@ dj-flux2 generate "watercolor painting with soft colors" -i landscape.jpg -o wat
 
 ```bash
 dj-flux2 generate --help
-dj-flux2 gui              # Launch GUI (no options)
-dj-flux2 serve --help     # Start HTTP API server
+dj-flux2 gui                # Launch GUI (no options)
+dj-flux2 serve --help       # Start HTTP API server
+dj-flux2 api-generate --help # Generate via API (blocking)
+dj-flux2 skill              # Install OpenCode skill to CWD
 dj-flux2 upscale --help
 dj-flux2 download --help
 ```
@@ -447,6 +454,34 @@ Messages are JSON objects with a `type` field:
 - `{"type": "complete", "status": "completed", "seed": 42, "error": null}`
 - `{"type": "error", "status": "failed", "seed": null, "error": "GPU out of memory..."}`
 
+### Blocking CLI Client
+
+For scripts and AI agents, `api-generate` wraps the full submit/poll/download cycle into a single blocking command:
+
+```bash
+# Generate an image (blocks until complete, saves to file)
+dj-flux2 api-generate "a red button icon" -o assets/button.png -W 256 -H 256
+
+# With upscaling
+dj-flux2 api-generate "mountain landscape" -o bg.png --upscale 2
+```
+
+All options from `generate` are supported (`-m`, `-W`, `-H`, `-s`, `-g`, `-S`, `--upscale`, `--upscale-method`), plus `--host`, `--port`, `--timeout`, and `--poll-interval` for server configuration.
+
+### OpenCode Skill
+
+Install the `generate-image` skill into any project so OpenCode agents can generate image assets:
+
+```bash
+# From your project directory (not the dj-flux2 repo)
+dj-flux2 skill
+
+# The skill is now available to OpenCode agents in this project
+# Agents will see it and can load it when they need to generate images
+```
+
+This copies the skill to `.opencode/skills/generate-image/SKILL.md` in the current directory. The skill teaches agents how to use `dj-flux2 api-generate` effectively — including prompt guidelines for different asset types (icons, textures, sprites, backgrounds).
+
 ## Troubleshooting
 
 ### Out of Memory
@@ -500,8 +535,11 @@ dj-flux2/
 ├── gui_generate.py        # GUI application logic (PySide6/Qt6)
 ├── gui_components.py      # GUI widget layout
 ├── serve_api.py           # HTTP API server (FastAPI + uvicorn)
+├── api_generate.py        # Blocking CLI wrapper for the API server
 ├── upscale_image.py       # Lanczos and Real-ESRGAN upscaling
 ├── download_models.py     # Real-ESRGAN model downloader (FLUX models auto-download)
+├── skills/                # OpenCode agent skills (installed via dj-flux2 skill)
+│   └── generate-image/SKILL.md
 ├── flux2/                 # BFL submodule (git, do not modify)
 │   └── src/flux2/         # Core FLUX.2 architecture code
 ├── pyrightconfig.json     # IDE/LSP config (resolves flux2 imports)

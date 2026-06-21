@@ -38,6 +38,8 @@ pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ./run upscale -i input.png -o output.png         # Upscale existing image
 ./run serve                                      # Start HTTP API server (0.0.0.0:8190)
 ./run serve --port 9000                          # Custom port
+./run api-generate "prompt" -o out.png           # Generate via API (blocking)
+./run skill                                      # Install OpenCode skill to CWD
 ./run download                                   # Download models
 ./run config                                     # Show current config
 ./run config model flux.2-klein-9b               # Set default model
@@ -178,8 +180,11 @@ Project root only:
 │                        #   RightImagePanel, open_image_file_dialog
 ├── generate_image.py    # Main inference script + ModelCache singleton + read_config()
 ├── serve_api.py         # HTTP API server (FastAPI + uvicorn): job queue, REST + WebSocket
+├── api_generate.py      # Blocking CLI wrapper: submit to API, poll, download result
 ├── upscale_image.py     # Upscaling (Lanczos + Real-ESRGAN via Spandrel)
 ├── download_models.py   # Model downloader (FLUX + Real-ESRGAN)
+├── skills/              # OpenCode agent skills (installed via ./run skill)
+│   └── generate-image/SKILL.md
 ├── pyrightconfig.json   # IDE/LSP config pointing at flux2/src
 ├── pyproject.toml       # Dependencies and entry points
 ├── setup                # One-time install script (writes .gpu-backend + ~/.local/bin/dj-flux2)

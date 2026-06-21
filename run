@@ -7,6 +7,8 @@
 #   ./run img2img "prompt" -i in.png [args] Transform an image
 #   ./run upscale -i in.png -o out.png      Upscale an image
 #   ./run serve                             Start the HTTP API server
+#   ./run api-generate "prompt" [args]      Generate via API (blocking)
+#   ./run skill                             Install OpenCode skill to CWD
 #   ./run download                          Download models
 #   ./run python <args>                     Run arbitrary python in the venv
 #   ./run version                           Print the dj-flux2 version
@@ -45,6 +47,8 @@ usage() {
     echo "  img2img   <prompt>    Image-to-image transformation (requires -i input.png)"
     echo "  upscale               Upscale an image (requires -i input.png -o output.png)"
     echo "  serve [--port N]      Start the HTTP API server (default: 0.0.0.0:8190)"
+    echo "  api-generate <prompt> Generate an image via the API server (blocking)"
+    echo "  skill                 Install the generate-image OpenCode skill to current directory"
     echo "  download              Download models"
     echo "  config [key [value]]  View or set default config (model, steps, guidance, width, height)"
     echo "  python    <args>      Run arbitrary python in the project venv"
@@ -54,11 +58,25 @@ usage() {
     exit 1
 }
 
-# Handle version queries before anything else — these don't need a backend
-# or the venv, so they work even before ./setup has been run.
+# Handle commands that don't need a backend or venv — these work even
+# before ./setup has been run.
 case "${1:-}" in
     version|--version|-V)
         echo "dj-flux2 $(project_version)"
+        exit 0
+        ;;
+    skill)
+        # Copy the generate-image skill into the current directory's
+        # .opencode/skills/ so OpenCode agents can discover it.
+        SKILL_SRC="${REPO_DIR}/skills/generate-image"
+        SKILL_DST=".opencode/skills/generate-image"
+        if [[ ! -d "$SKILL_SRC" ]]; then
+            die "Skill source not found: $SKILL_SRC"
+        fi
+        mkdir -p "$SKILL_DST"
+        cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
+        echo "✓ Installed generate-image skill to ${SKILL_DST}/"
+        echo "  Agents can now use: skill({ name: \"generate-image\" })"
         exit 0
         ;;
 esac
@@ -211,6 +229,11 @@ case "$cmd" in
         ;;
     serve)
         exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/serve_api.py" "$@"
+        ;;
+    api-generate)
+        # Blocking wrapper: submit to API server, poll, download result.
+        # Uses only stdlib — no GPU deps needed, but uv run keeps it simple.
+        exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/api_generate.py" "$@"
         ;;
     download)
         exec uv run --project "$REPO_DIR" $uv_flags "$REPO_DIR/download_models.py" "$@"
