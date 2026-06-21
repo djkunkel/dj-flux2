@@ -39,6 +39,8 @@ ROCM_GFX_TARGET="gfx1201"   # AMD Radeon RX 9070 / XT (RDNA4)
 
 BACKEND_FILE=".gpu-backend"
 
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 die() { echo "error: $*" >&2; exit 1; }
 
 backend="${1:-}"
@@ -89,7 +91,6 @@ echo "$backend" > "$BACKEND_FILE"
 
 # Install dj-flux2 into ~/.local/bin as a thin wrapper around ./run so it
 # can be used from any directory.
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 WRAPPER="${BIN_DIR}/dj-flux2"
 mkdir -p "${BIN_DIR}"
