@@ -77,10 +77,11 @@ esac
 
 # Set RDNA4-specific env vars when using rocm-nightly.
 if [[ "$backend" == "rocm-nightly" ]]; then
-    # FAST mode required — NORMAL hangs the GPU on gfx1201 VAE shapes (~3.5s slower)
-    export MIOPEN_FIND_MODE=FAST
-    # Reduces workspace retention between generations
-    export MIOPEN_FIND_ENFORCE=NONE
+
+    # # FAST mode required — NORMAL hangs the GPU on gfx1201 VAE shapes (~3.5s slower)
+    # export MIOPEN_FIND_MODE=FAST
+    # # Reduces workspace retention between generations
+    # export MIOPEN_FIND_ENFORCE=NONE
 
     # Validated no-ops on ROCm 7.14 / multi-arch (20260616) — commented out pending
     # further manual testing before permanent removal.
