@@ -78,6 +78,12 @@ esac
 # Set RDNA4-specific env vars when using rocm-nightly.
 if [[ "$backend" == "rocm-nightly" ]]; then
 
+    # Add libnuma shim to LD_LIBRARY_PATH so dlopen("libnuma.so") succeeds.
+    # Created by ./numa.sh during ./setup.  See numa.sh for full rationale.
+    if [[ -d "${REPO_DIR}/.venv/numa-shim" ]]; then
+        export LD_LIBRARY_PATH="${REPO_DIR}/.venv/numa-shim${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    fi
+
     # # FAST mode required — NORMAL hangs the GPU on gfx1201 VAE shapes (~3.5s slower)
     # export MIOPEN_FIND_MODE=FAST
     # # Reduces workspace retention between generations

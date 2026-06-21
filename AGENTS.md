@@ -320,10 +320,17 @@ is `rocm-nightly`:
 
 | Variable | Value | Reason |
 |---|---|---|
-| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` | `1` | Enables AOTriton flash attention for gfx1201 |
-| `MIOPEN_FIND_MODE` | `FAST` | NORMAL hangs the GPU on gfx1201 VAE shapes |
-| `MIOPEN_FIND_ENFORCE` | `NONE` | Reduces workspace retention between generations |
-| `PYTORCH_ALLOC_CONF` | `garbage_collection_threshold:0.8,max_split_size_mb:512` | Reduces VRAM fragmentation |
+| `LD_LIBRARY_PATH` | `.venv/numa-shim` appended | libnuma.so shim so torch's rocSHMEM dlopen succeeds |
+| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` | `1` | **No-op on ROCm 7.14** — AOTriton is enabled by default |
+| `MIOPEN_FIND_MODE` | `FAST` | **Do not use** — default DYNAMIC_HYBRID builds FindDb cache for repeated resolutions |
+| `MIOPEN_FIND_ENFORCE` | `NONE` | **No longer needed** — was paired with FAST to avoid a GPU hang on older MIOpen |
+| `PYTORCH_ALLOC_CONF` | `garbage_collection_threshold:0.8,max_split_size_mb:512` | **No-op on ROCm 7.14** — no VRAM fragmentation observed |
+
+**Note:** `MIOPEN_FIND_MODE=FAST` was previously used to avoid a hang on gfx1201 VAE
+shapes. On MIOpen 3.5.2 (ROCm 7.14) the default DYNAMIC_HYBRID mode is faster for
+repeated resolutions because it builds up the FindDb cache. FAST is only useful
+for one-off resolutions you'll never re-run. The vars above are all commented out
+in `run` and are listed here for historical context only.
 
 **To update to a newer nightly:** simply re-run `./setup rocm-nightly` — it
 always pulls the latest build. Browse available packages at:

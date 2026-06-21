@@ -51,6 +51,7 @@ case "$backend" in
     rocm)
         echo "Setting up AMD/ROCm stable backend (ROCm 7.2)..."
         uv sync --extra rocm --reinstall
+        "${REPO_DIR}/numa.sh"
         ;;
     rocm-nightly)
         echo "Setting up AMD/ROCm nightly backend (multi-arch, ${ROCM_GFX_TARGET})..."
@@ -63,6 +64,7 @@ case "$backend" in
             --index-url "${ROCM_MULTIARCH_INDEX}" \
             --pre \
             --reinstall
+        "${REPO_DIR}/numa.sh"
         ;;
     cpu)
         echo "Setting up CPU-only backend..."

@@ -20,9 +20,32 @@ with `flux.2-klein-4b`. Baseline (all vars set): ~10s at 512×512.
 
 | Variable | Effect observed | Verdict |
 |---|---|---|
-| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` | No timing difference at any resolution | **No-op on ROCm 7.14** — commented out, pending permanent removal |
-| `MIOPEN_FIND_MODE=FAST` + `MIOPEN_FIND_ENFORCE=NONE` | Removing costs ~3.5s per generation (~35% slower) | **Keep** |
-| `PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8,max_split_size_mb:512` | No effect at 512×512 or 1024×1024 | **No-op on ROCm 7.14** — commented out, pending permanent removal |
+| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` | No timing difference at any resolution | **No-op on ROCm 7.14** — safe to remove |
+| `MIOPEN_FIND_MODE=FAST` + `MIOPEN_FIND_ENFORCE=NONE` | **Do not use.** Default DYNAMIC_HYBRID is better for repeated resolutions | **Remove** — see §MIOPEN find mode below |
+| `PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8,max_split_size_mb:512` | No effect at 512×512 or 1024×1024 | **No-op on ROCm 7.14** — safe to remove |
+
+### MIOPEN_FIND_MODE behavior (20260620)
+
+MIOpen find modes only matter when there is a **FindDb miss** (shape not yet tuned).
+
+| Mode | On FindDb miss | Effect on FindDb | First run | Subsequent runs |
+|---|---|---|---|---|
+| `FAST` | AI heuristic fallback immediately | **Never updates** FindDb | ~10.4s at 896×576 | ~10.5s (still heuristic) |
+| `DYNAMIC_HYBRID` (default) | Runs find machinery | **Adds entry** to FindDb | ~13.7s at 896×576 | **~10.0s** (cached, fastest) |
+
+Key findings at 896×576 (flux.2-klein-4b, uncached shape):
+- DYNAMIC_HYBRID costs **~3.3s extra** on first run vs FAST
+- Second run is **~0.5s faster** than FAST because it uses the tuned entry
+- For resolutions you run repeatedly (the common case), DYNAMIC_HYBRID wins long-term
+- FAST never builds the cache — it perpetually uses heuristics
+
+**Earlier notes claiming "removing MIOPEN vars costs ~3.5s" were wrong** — that cost
+was the triton JIT cold-start, not the MIOpen find path. With triton cache warm,
+there is no measurable MIOPEN-related overhead with the default mode.
+
+**Conclusion:** `MIOPEN_FIND_MODE=FAST` is not needed. The default DYNAMIC_HYBRID
+already provides tuned performance for repeated resolutions. Keep MIOPEN vars
+**commented out** in `run`.
 
 ### Cold-start penalty on first use after nightly upgrade
 
@@ -62,11 +85,14 @@ resolutions after each nightly upgrade and the cache will warm up. No action nee
 
 ## TODO / open questions
 
-- Confirm `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` is permanently safe to remove
-  (test at higher resolutions, test with img2img)
-- Confirm `PYTORCH_ALLOC_CONF` is safe to remove — test at very high resolutions
-  (1344×768, 1536×1024) where VRAM pressure is higher on the 9b-kv model
+- [x] `MIOPEN_FIND_MODE=FAST` — resolved: default DYNAMIC_HYBRID is better for
+  repeated resolutions; MIOPEN vars are not needed
+- [x] `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` — resolved: no-op on ROCm 7.14
+- [x] `PYTORCH_ALLOC_CONF` — resolved: no measurable effect on ROCm 7.14 at 512/1024
 - Establish a proper timing baseline once the triton cache is fully warmed on 7.14,
   compare against the recorded 7.13 numbers
-- Investigate whether `MIOPEN_FIND_ENFORCE=NONE` alone is sufficient without
-  `MIOPEN_FIND_MODE=FAST`, or whether both are needed to avoid the hang
+- Confirm `PYTORCH_ALLOC_CONF` is safe to remove at very high resolutions
+  (1344×768, 1536×1024) where VRAM pressure is higher on the 9b-kv model
+- Test img2img with `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` removed (low priority)
+- Investigate whether `MIOPEN_FIND_ENFORCE=NONE` alone has any effect without
+  `MIOPEN_FIND_MODE=FAST` (low priority — both vars are now commented out)
