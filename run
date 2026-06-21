@@ -77,14 +77,28 @@ esac
 
 # Set RDNA4-specific env vars when using rocm-nightly.
 if [[ "$backend" == "rocm-nightly" ]]; then
-    # AOTriton flash attention — required for gfx1201
-    export TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
-    # FAST mode required — NORMAL hangs the GPU on gfx1201 VAE shapes
-    export MIOPEN_FIND_MODE=FAST
-    # Reduces workspace retention between generations
-    export MIOPEN_FIND_ENFORCE=NONE
-    # Flush idle blocks at 80% of reserved memory; cap block size to 512 MB
-    export PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8,max_split_size_mb:512
+
+    # Add libnuma shim to LD_LIBRARY_PATH so dlopen("libnuma.so") succeeds.
+    # Created by ./numa.sh during ./setup.  See numa.sh for full rationale.
+    if [[ -d "${REPO_DIR}/.venv/numa-shim" ]]; then
+        export LD_LIBRARY_PATH="${REPO_DIR}/.venv/numa-shim${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    fi
+
+    # # FAST mode required — NORMAL hangs the GPU on gfx1201 VAE shapes (~3.5s slower)
+    # export MIOPEN_FIND_MODE=FAST
+    # # Reduces workspace retention between generations
+    # export MIOPEN_FIND_ENFORCE=NONE
+
+    # Validated no-ops on ROCm 7.14 / multi-arch (20260616) — commented out pending
+    # further manual testing before permanent removal.
+    #
+    # TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+    #   Was: enables AOTriton flash attention for gfx1201.
+    #   Now: appears enabled by default in ROCm 7.14; no timing difference observed.
+    #
+    # PYTORCH_ALLOC_CONF=garbage_collection_threshold:0.8,max_split_size_mb:512
+    #   Was: reduce VRAM fragmentation to prevent OOM at high resolutions.
+    #   Now: no measurable effect at 512x512 or 1024x1024 on ROCm 7.14.
 fi
 
 # Choose uv run flags. rocm-nightly uses --no-sync to preserve the nightly

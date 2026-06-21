@@ -4,7 +4,7 @@
 # Usage:
 #   ./setup cuda         NVIDIA GPU, CUDA 12.6
 #   ./setup rocm         AMD GPU, ROCm 7.2 stable (RDNA 2/3)
-#   ./setup rocm-nightly AMD RDNA4 (gfx120X / RX 9700), ROCm 7.13 nightly
+#   ./setup rocm-nightly AMD RDNA4 (gfx120X / RX 9700), ROCm 7.14 nightly (multi-arch)
 #   ./setup cpu          CPU only, no GPU
 #
 # Writes the chosen backend to .gpu-backend (gitignored) so that ./run
@@ -17,24 +17,29 @@
 # resolve the nightly pre-release local version specifiers alongside the
 # stable extras at lock time. Instead, this script syncs the stable rocm
 # extra first (to install all non-torch deps), then overwrites torch and
-# torchvision with the pinned nightly build via uv pip --index-url.
-# This is the same approach used in invokeai-rocm/Dockerfile.
+# torchvision from AMD's multi-arch nightly index via uv pip.
 #
-# To update the nightly pin, edit THEROCK_DATE, TORCH_VER, and TV_VER below.
-# Browse https://rocm.nightlies.amd.com/v2/gfx120X-all/torch/ for builds.
+# The multi-arch index (whl-multi-arch) uses a device-extras model: the base
+# torch wheel contains only host code; GPU-specific kernels come from a
+# separate amd-torch-device-gfx1201 package. This means:
+#   - No manual date pin needed — pip resolves the latest compatible build
+#   - ROCm SDK packages install automatically as dependencies
+#   - Much smaller per-GPU downloads (~150 MB vs ~600 MB for per-family wheels)
+#
+# Browse https://rocm.nightlies.amd.com/whl-multi-arch/ for available packages.
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Nightly pin — update these three variables to bump to a newer build
+# Multi-arch nightly index — no date pin needed, pip picks the latest build
 # ---------------------------------------------------------------------------
-THEROCK_DATE="20260512"
-TORCH_VER="2.10.0+rocm7.13.0a${THEROCK_DATE}"
-TV_VER="0.25.0+rocm7.13.0a${THEROCK_DATE}"
-ROCM_NIGHTLY_INDEX="https://rocm.nightlies.amd.com/v2/gfx120X-all/"
+ROCM_MULTIARCH_INDEX="https://rocm.nightlies.amd.com/whl-multi-arch/"
+ROCM_GFX_TARGET="gfx1201"   # AMD Radeon RX 9070 / XT (RDNA4)
 # ---------------------------------------------------------------------------
 
 BACKEND_FILE=".gpu-backend"
+
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -48,16 +53,20 @@ case "$backend" in
     rocm)
         echo "Setting up AMD/ROCm stable backend (ROCm 7.2)..."
         uv sync --extra rocm --reinstall
+        "${REPO_DIR}/numa.sh"
         ;;
     rocm-nightly)
-        echo "Setting up AMD/ROCm nightly backend (ROCm 7.13, ${THEROCK_DATE})..."
+        echo "Setting up AMD/ROCm nightly backend (multi-arch, ${ROCM_GFX_TARGET})..."
         echo "Step 1/2: Syncing base deps via stable rocm extra..."
         uv sync --extra rocm --reinstall
-        echo "Step 2/2: Installing nightly torch ${TORCH_VER}..."
+        echo "Step 2/2: Installing nightly torch + ROCm for ${ROCM_GFX_TARGET}..."
         uv pip install \
-            "torch==${TORCH_VER}" \
-            "torchvision==${TV_VER}" \
-            --index-url "${ROCM_NIGHTLY_INDEX}"
+            "torch[device-${ROCM_GFX_TARGET}]" \
+            "torchvision[device-${ROCM_GFX_TARGET}]" \
+            --index-url "${ROCM_MULTIARCH_INDEX}" \
+            --pre \
+            --reinstall
+        "${REPO_DIR}/numa.sh"
         ;;
     cpu)
         echo "Setting up CPU-only backend..."
@@ -69,7 +78,7 @@ case "$backend" in
         echo "Backends:"
         echo "  cuda         NVIDIA GPU, CUDA 12.6"
         echo "  rocm         AMD GPU, ROCm 7.2 stable (RDNA 2/3)"
-        echo "  rocm-nightly AMD RDNA4 (gfx120X / RX 9700), ROCm 7.13 nightly"
+        echo "  rocm-nightly AMD RDNA4 (gfx120X / RX 9700), ROCm 7.14 nightly (multi-arch)"
         echo "  cpu          CPU only, no GPU"
         exit 1
         ;;
@@ -82,7 +91,6 @@ echo "$backend" > "$BACKEND_FILE"
 
 # Install dj-flux2 into ~/.local/bin as a thin wrapper around ./run so it
 # can be used from any directory.
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 WRAPPER="${BIN_DIR}/dj-flux2"
 mkdir -p "${BIN_DIR}"
