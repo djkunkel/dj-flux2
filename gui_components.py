@@ -220,6 +220,8 @@ class LeftConfigPanel(QWidget):
     mode_changed = Signal(bool)  # True = img2img, False = txt2img
     model_changed = Signal(str)  # new model name
     browse_clicked = Signal()
+    image_removed = Signal(int)   # index of removed image
+    images_cleared = Signal()     # all images cleared
     generate_clicked = Signal()
     save_clicked = Signal()
     copy_seed_clicked = Signal()
@@ -296,17 +298,43 @@ class LeftConfigPanel(QWidget):
         return group
 
     def _build_input_section(self) -> QWidget:
-        """Input image selector (shown only in img2img mode)"""
-        self._input_group = QGroupBox("Input Image (for img2img)")
-        layout = QHBoxLayout()
+        """Input image selector with add/remove support for multi-reference."""
+        self._input_group = QGroupBox("Reference Images (for img2img)")
+        layout = QVBoxLayout()
 
-        self._browse_btn = QPushButton("Browse...")
-        self._input_label = QLabel("No image selected")
+        # Button row: Add Image + Clear All
+        btn_row = QHBoxLayout()
+        self._browse_btn = QPushButton("Add Image...")
+        self._clear_images_btn = QPushButton("Clear All")
+        self._clear_images_btn.setEnabled(False)
+        btn_row.addWidget(self._browse_btn)
+        btn_row.addWidget(self._clear_images_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
 
-        layout.addWidget(self._browse_btn)
+        # Scrollable list of image rows
+        self._image_list_widget = QWidget()
+        self._image_list_layout = QVBoxLayout(self._image_list_widget)
+        self._image_list_layout.setContentsMargins(0, 0, 0, 0)
+        self._image_list_layout.setSpacing(2)
+        self._image_list_layout.addStretch()  # push rows to top
+
+        scroll = QScrollArea()
+        scroll.setWidget(self._image_list_widget)
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(120)  # compact — don't dominate left panel
+        self._image_scroll = scroll
+
+        # Placeholder label (shown when list is empty)
+        self._input_label = QLabel("No images selected")
+        self._input_label.setStyleSheet("color: #888;")
+
         layout.addWidget(self._input_label)
-        layout.addStretch()
+        layout.addWidget(scroll)
+        scroll.setVisible(False)  # hidden until first image added
+
         self._input_group.setLayout(layout)
+        self._image_rows: list[QWidget] = []  # track rows for removal
         return self._input_group
 
     def _build_prompt_section(self) -> QWidget:
@@ -551,6 +579,7 @@ class LeftConfigPanel(QWidget):
             else None
         )
         self._browse_btn.clicked.connect(self.browse_clicked)
+        self._clear_images_btn.clicked.connect(self.images_cleared)
         self._generate_btn.clicked.connect(self.generate_clicked)
         self._save_btn.clicked.connect(self.save_clicked)
         self._copy_seed_btn.clicked.connect(self.copy_seed_clicked)
@@ -682,9 +711,71 @@ class LeftConfigPanel(QWidget):
             ),
         }
 
-    def set_input_label(self, text: str):
-        """Update the input image filename label"""
-        self._input_label.setText(text)
+    def add_input_image(self, filepath: str):
+        """Add an image thumbnail row to the input list."""
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(2, 2, 2, 2)
+
+        # Thumbnail (32x32)
+        thumb = QLabel()
+        pixmap = QPixmap(filepath).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        thumb.setPixmap(pixmap)
+        thumb.setFixedSize(32, 32)
+
+        # Filename
+        name = QLabel(Path(filepath).name)
+        name.setStyleSheet("font-size: 11px;")
+
+        # Remove button
+        idx = len(self._image_rows)
+        remove_btn = QPushButton("X")
+        remove_btn.setFixedSize(20, 20)
+        remove_btn.setStyleSheet("font-size: 10px; padding: 0;")
+        remove_btn.clicked.connect(lambda checked, i=idx: self.image_removed.emit(i))
+
+        row_layout.addWidget(thumb)
+        row_layout.addWidget(name, 1)
+        row_layout.addWidget(remove_btn)
+
+        # Insert before the stretch at the end
+        self._image_list_layout.insertWidget(len(self._image_rows), row)
+        self._image_rows.append(row)
+
+        # Update visibility
+        self._input_label.setVisible(False)
+        self._image_scroll.setVisible(True)
+        self._clear_images_btn.setEnabled(True)
+
+    def remove_input_image(self, index: int):
+        """Remove an image row by index and re-index remaining remove buttons."""
+        if 0 <= index < len(self._image_rows):
+            row = self._image_rows.pop(index)
+            self._image_list_layout.removeWidget(row)
+            row.deleteLater()
+
+            # Re-index the remaining remove buttons so their signals emit
+            # the correct index after removal.
+            for i, r in enumerate(self._image_rows):
+                btn = r.findChild(QPushButton)
+                if btn:
+                    btn.clicked.disconnect()
+                    btn.clicked.connect(lambda checked, idx=i: self.image_removed.emit(idx))
+
+            if not self._image_rows:
+                self._input_label.setVisible(True)
+                self._image_scroll.setVisible(False)
+                self._clear_images_btn.setEnabled(False)
+
+    def clear_input_images(self):
+        """Remove all image rows."""
+        for row in self._image_rows:
+            self._image_list_layout.removeWidget(row)
+            row.deleteLater()
+        self._image_rows.clear()
+        self._input_label.setVisible(True)
+        self._image_scroll.setVisible(False)
+        self._clear_images_btn.setEnabled(False)
 
     def set_input_group_visible(self, visible: bool):
         """Show or hide the input image group box"""
@@ -760,18 +851,89 @@ class LeftConfigPanel(QWidget):
         self._upscale_check.setChecked(False)
         self._scale_2x.setChecked(True)
         self._method_lanczos.setChecked(True)
-        self._input_label.setText("No image selected")
+        self.clear_input_images()
         self.set_status("Ready", StatusState.READY)
         self._save_btn.setEnabled(False)
+
+
+class MultiImagePreviewPanel(QWidget):
+    """Scrollable vertical column of image previews for multi-reference input."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._previews: list[ImagePreviewPanel] = []
+        self._filenames: list[str] = []  # parallel list of display names
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        title = QLabel("Reference Images")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-weight: bold; font-size: 12px;")
+        title.setFixedHeight(20)
+        layout.addWidget(title)
+
+        # Placeholder (shown when empty)
+        self._placeholder = QLabel("(img2img mode only)")
+        self._placeholder.setAlignment(Qt.AlignCenter)
+        self._placeholder.setStyleSheet("color: #888;")
+        layout.addWidget(self._placeholder)
+
+        # Scrollable container for image previews
+        self._container = QWidget()
+        self._container_layout = QVBoxLayout(self._container)
+        self._container_layout.setContentsMargins(0, 0, 0, 0)
+        self._container_layout.setSpacing(5)
+        self._container_layout.addStretch()
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidget(self._container)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setVisible(False)
+        layout.addWidget(self._scroll, 1)
+
+    def add_image(self, filepath: str):
+        """Add an image preview to the vertical column."""
+        name = Path(filepath).name
+        preview = ImagePreviewPanel(name, "", min_size=128)
+        preview.display_image(filepath)
+        self._container_layout.insertWidget(len(self._previews), preview)
+        self._previews.append(preview)
+        self._filenames.append(name)
+        self._placeholder.setVisible(False)
+        self._scroll.setVisible(True)
+
+    def remove_image(self, index: int):
+        """Remove an image preview by index."""
+        if 0 <= index < len(self._previews):
+            preview = self._previews.pop(index)
+            self._filenames.pop(index)
+            self._container_layout.removeWidget(preview)
+            preview.deleteLater()
+            if not self._previews:
+                self._placeholder.setVisible(True)
+                self._scroll.setVisible(False)
+
+    def clear(self):
+        """Clear all image previews."""
+        for preview in self._previews:
+            self._container_layout.removeWidget(preview)
+            preview.deleteLater()
+        self._previews.clear()
+        self._filenames.clear()
+        self._placeholder.setVisible(True)
+        self._scroll.setVisible(False)
 
 
 class RightImagePanel(QWidget):
     """Right panel for image previews — switches between txt2img and img2img layouts.
 
-    Both ImagePreviewPanel widgets are created once and kept alive for the
-    lifetime of this panel.  Mode switching only shows/hides the input panel
-    and adjusts the splitter sizes — no widget creation or destruction occurs
-    after initialisation.
+    The output_preview is a single ImagePreviewPanel kept alive for the lifetime
+    of this panel.  The input_previews is a MultiImagePreviewPanel that shows a
+    scrollable vertical column of reference images for img2img mode.  Mode
+    switching only shows/hides the input panel and adjusts the splitter sizes.
     """
 
     def __init__(self, parent=None):
@@ -784,16 +946,14 @@ class RightImagePanel(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
 
-        self.input_preview = ImagePreviewPanel(
-            "Input Image", "(img2img mode only)", min_size=256
-        )
+        self.input_previews = MultiImagePreviewPanel()
         self.output_preview = ImagePreviewPanel(
             "Generated Image", "Generate an image to see preview", min_size=256
         )
 
         # Single persistent splitter — never recreated on mode switch
         self._splitter = QSplitter(Qt.Horizontal)
-        self._splitter.addWidget(self.input_preview)
+        self._splitter.addWidget(self.input_previews)
         self._splitter.addWidget(self.output_preview)
         self._splitter.setStretchFactor(0, 1)
         self._splitter.setStretchFactor(1, 1)
@@ -815,17 +975,17 @@ class RightImagePanel(QWidget):
         self._current_mode = is_img2img
 
         if is_img2img:
-            self.input_preview.setVisible(True)
+            self.input_previews.setVisible(True)
             # Equal split
             total = self._splitter.width()
             half = total // 2 if total > 0 else 400
             self._splitter.setSizes([half, half])
         else:
-            self.input_preview.setVisible(False)
+            self.input_previews.setVisible(False)
             # Give all space to output panel
             self._splitter.setSizes([0, self._splitter.width() or 800])
 
     def clear_previews(self):
         """Clear both preview panels"""
-        self.input_preview.clear()
+        self.input_previews.clear()
         self.output_preview.clear()

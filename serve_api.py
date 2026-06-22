@@ -73,7 +73,7 @@ class Job:
     steps: int | None
     guidance: float | None
     seed: int | None
-    input_image_path: str | None  # temp file for decoded base64 img2img input
+    input_image_paths: list[str]  # temp files for decoded base64 img2img input(s)
     do_upscale: bool
     upscale_scale: int
     upscale_method: str
@@ -219,7 +219,7 @@ def generation_worker() -> None:
             seed = generate_image(
                 prompt=job.prompt,
                 output_path=job.output_path,
-                input_image=job.input_image_path,
+                input_image=job.input_image_paths or None,
                 width=job.width,
                 height=job.height,
                 num_steps=job.steps,
@@ -261,10 +261,10 @@ def generation_worker() -> None:
             print(f"✗ Job {job.token[:8]} failed: {e}")
 
         finally:
-            # Clean up temp img2img input file
-            if job.input_image_path:
+            # Clean up temp img2img input file(s)
+            for p in job.input_image_paths:
                 try:
-                    os.remove(job.input_image_path)
+                    os.remove(p)
                 except OSError:
                     pass
             store.prune()
@@ -283,7 +283,7 @@ class GenerateRequest(BaseModel):
     steps: int | None = None
     guidance: float | None = None
     seed: int | None = None
-    input_image_base64: str | None = None
+    input_image_base64: str | list[str] | None = None
     upscale: int | None = None
     upscale_method: str = "lanczos"
 
@@ -392,17 +392,28 @@ def create_app() -> FastAPI:
                 detail=f"Queue is full ({MAX_QUEUED_JOBS} jobs). Try again later.",
             )
 
-        # Decode base64 input image for img2img
-        input_image_path = None
+        # Decode base64 input image(s) for img2img
+        input_image_paths: list[str] = []
         if req.input_image_base64:
-            try:
-                img_bytes = base64.b64decode(req.input_image_base64)
-            except Exception:
-                raise HTTPException(status_code=400, detail="Invalid base64 in input_image_base64")
-            fd, input_image_path = tempfile.mkstemp(suffix=".png", prefix="flux_api_input_")
-            os.close(fd)
-            with open(input_image_path, "wb") as f:
-                f.write(img_bytes)
+            items = (req.input_image_base64
+                     if isinstance(req.input_image_base64, list)
+                     else [req.input_image_base64])
+            for b64 in items:
+                try:
+                    img_bytes = base64.b64decode(b64)
+                except Exception:
+                    # Clean up any already-decoded temp files
+                    for p in input_image_paths:
+                        try:
+                            os.remove(p)
+                        except OSError:
+                            pass
+                    raise HTTPException(status_code=400, detail="Invalid base64 in input_image_base64")
+                fd, path = tempfile.mkstemp(suffix=".png", prefix="flux_api_input_")
+                os.close(fd)
+                with open(path, "wb") as f:
+                    f.write(img_bytes)
+                input_image_paths.append(path)
 
         # Build output path: output/YYYYMMDD_HHMMSS_{token[:8]}.png
         token = uuid.uuid4().hex
@@ -420,7 +431,7 @@ def create_app() -> FastAPI:
             steps=steps,
             guidance=guidance,
             seed=req.seed,
-            input_image_path=input_image_path,
+            input_image_paths=input_image_paths,
             do_upscale=do_upscale,
             upscale_scale=upscale_scale,
             upscale_method=req.upscale_method,

@@ -694,7 +694,7 @@ card) once real-world testing establishes the boundary.
 
 ## Open Items
 
-- [ ] `api_generate.py` — add `-i` support (follow-up commit)
-- [ ] `MultiImagePreviewPanel.remove_image()` — re-titling logic (minor)
+- [x] `api_generate.py` — add `-i` support (done)
+- [x] `MultiImagePreviewPanel.remove_image()` — re-titling logic (done)
 - [ ] Real-world VRAM testing with 2-4 reference images
 - [ ] Consider multi-select file dialog vs single-select with "Add more"

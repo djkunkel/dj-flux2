@@ -47,7 +47,7 @@ class GenerationParams(TypedDict):
     steps: int
     guidance: float
     seed: Optional[int]
-    input_image: Optional[str]
+    input_image: Optional[list[str]]
     do_upscale: bool
     upscale_scale: int
     upscale_method: str
@@ -63,7 +63,7 @@ class GuiState:
     """
 
     def __init__(self):
-        self.input_image_path: Optional[str] = None
+        self.input_image_paths: list[str] = []
         self.generated_image_path: Optional[str] = None
         self.current_seed: Optional[int] = None
         self.worker: Optional[QThread] = None
@@ -86,7 +86,7 @@ class GuiState:
     def reset_images(self):
         """Delete all session temp files and reset image-related state."""
         self._purge_session_dir()
-        self.input_image_path = None
+        self.input_image_paths = []
         self.generated_image_path = None
         self.current_seed = None
 
@@ -270,6 +270,8 @@ class FluxGUI(QMainWindow):
         self.left_panel.mode_changed.connect(self._on_mode_change)
         self.left_panel.model_changed.connect(self._on_model_change)
         self.left_panel.browse_clicked.connect(self._browse_input_image)
+        self.left_panel.image_removed.connect(self._remove_input_image)
+        self.left_panel.images_cleared.connect(self._clear_input_images)
         self.left_panel.generate_clicked.connect(self._generate_image)
         self.left_panel.save_clicked.connect(self._save_image)
         self.left_panel.copy_seed_clicked.connect(self._copy_seed)
@@ -284,31 +286,27 @@ class FluxGUI(QMainWindow):
         """Handle mode switching between txt2img and img2img.
 
         When switching to img2img: if there is already a generated image,
-        load it into the input panel automatically so the user can immediately
+        add it as a reference automatically so the user can immediately
         start refining without having to browse for the file manually.
 
-        When switching back to txt2img: clear the input state but preserve
+        When switching back to txt2img: clear the references but preserve
         the output panel so the last result stays visible.
         """
         self.left_panel.set_input_group_visible(is_img2img)
         self.right_panel.set_mode(is_img2img)
 
         if is_img2img:
-            # Auto-populate the input from the last generated image if available
-            # and no input image has been explicitly chosen yet for this session.
-            if self.state.generated_image_path and not self.state.input_image_path:
-                self._load_input_image(self.state.generated_image_path)
-            # Restore the output preview (mode switch hid nothing on the output
-            # side, but if there is a generated image make sure it is displayed)
+            # Auto-populate from last generated image if no references chosen yet
+            if self.state.generated_image_path and not self.state.input_image_paths:
+                self._add_input_image(self.state.generated_image_path)
+            # Restore the output preview
             if self.state.generated_image_path:
                 self.right_panel.output_preview.display_image(
                     self.state.generated_image_path
                 )
         else:
-            # Switching back to txt2img: drop the input image reference
-            self.state.input_image_path = None
-            self.left_panel.set_input_label("No image selected")
-            self.right_panel.input_preview.clear()
+            # Switching to txt2img: clear references
+            self._clear_input_images()
             # Keep the output preview intact so the user can still see the last result
 
     def _on_model_change(self, model_name: str):
@@ -321,24 +319,34 @@ class FluxGUI(QMainWindow):
             model_cache.clear()
             self.left_panel.update_model_status(False)
 
-    def _load_input_image(self, filepath: str):
-        """Set filepath as the active input image and update the UI.
+    def _add_input_image(self, filepath: str):
+        """Append an image to the reference list and update the UI."""
+        self.state.input_image_paths.append(filepath)
+        self.left_panel.add_input_image(filepath)
+        self.right_panel.input_previews.add_image(filepath)
 
-        Used both by the browse button and the auto-load-on-mode-switch path.
-        """
-        self.state.input_image_path = filepath
-        self.left_panel.set_input_label(f"Selected: {Path(filepath).name}")
-        self.right_panel.input_preview.display_image(filepath)
+    def _remove_input_image(self, index: int):
+        """Remove a reference image by index and update the UI."""
+        if 0 <= index < len(self.state.input_image_paths):
+            self.state.input_image_paths.pop(index)
+            self.left_panel.remove_input_image(index)
+            self.right_panel.input_previews.remove_image(index)
+
+    def _clear_input_images(self):
+        """Remove all reference images."""
+        self.state.input_image_paths = []
+        self.left_panel.clear_input_images()
+        self.right_panel.input_previews.clear()
 
     def _browse_input_image(self):
-        """Open file picker for input image with live preview"""
-        filepath = open_image_file_dialog(self, "Select Input Image")
+        """Open file picker and add the selected image to the reference list."""
+        filepath = open_image_file_dialog(self, "Select Reference Image")
         if filepath:
-            self._load_input_image(filepath)
+            self._add_input_image(filepath)
 
     def _validate_generation_params(self) -> tuple[bool, str]:
         """Validate parameters before generation"""
-        if self.left_panel.is_img2img_mode() and not self.state.input_image_path:
+        if self.left_panel.is_img2img_mode() and not self.state.input_image_paths:
             return False, "Please select an input image for img2img mode"
         if not self.left_panel.get_prompt().strip():
             return False, "Please enter a prompt"
@@ -369,7 +377,7 @@ class FluxGUI(QMainWindow):
 
         params: GenerationParams = self.left_panel.get_generation_params()
         params["input_image"] = (
-            self.state.input_image_path if self.left_panel.is_img2img_mode() else None
+            list(self.state.input_image_paths) if self.left_panel.is_img2img_mode() else None
         )
 
         self.state.worker = GenerationWorker(params, self.state)
