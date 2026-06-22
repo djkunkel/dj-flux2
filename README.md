@@ -6,7 +6,7 @@ Minimal FLUX.2 Klein image generation with GPU support (NVIDIA/CUDA and AMD/ROCm
 
 - 🚀 **Fast**: Sub-second generation on RTX 4070 (4-step distilled models)
 - 🎨 **Text-to-Image**: Generate images from text descriptions
-- 🖼️ **Image-to-Image**: Transform images with prompts
+- 🖼️ **Image-to-Image**: Transform images with prompts (single or multi-reference)
 - 🖥️ **GUI Interface**: Modern PySide6 (Qt6) app for easy experimentation
 - 🔍 **Real-time Preview**: See results side-by-side before saving
 - 🤖 **Multiple Models**: Klein 4B/9B (distilled) and base variants
@@ -127,6 +127,7 @@ dj-flux2 gui
 
 **The GUI provides:**
 - **Two modes**: Text-to-Image and Image-to-Image
+- **Multi-reference img2img**: Add multiple reference images for style blending and multi-source editing
 - **Side-by-side preview**: See input and output images together (img2img mode)
 - **Auto-load workflow**: Switch to img2img and the last generated image loads as input automatically
 - **Per-mode prompts**: Separate prompt history for txt2img and img2img — switching modes never clears your work
@@ -263,6 +264,12 @@ dj-flux2 generate "pencil sketch, detailed line art, black and white" -i portrai
 
 # Style transfer
 dj-flux2 generate "watercolor painting with soft colors" -i landscape.jpg -o watercolor.png
+
+# Multi-reference: combine styles from multiple images
+dj-flux2 generate "combine these styles" -i photo1.jpg -i photo2.jpg -o combined.png
+
+# Multi-reference: blend content from several sources
+dj-flux2 generate "merge into one scene" -i bg.jpg -i subject.jpg -i texture.jpg -o merged.png
 ```
 
 ### All Options
@@ -285,7 +292,7 @@ Options:
                         flux.2-klein-9b       9B distilled (higher quality)
                         flux.2-klein-base-4b  4B base (guidance meaningful, ~50 steps)
                         flux.2-klein-base-9b  9B base
-  -i, --input         Input image for img2img
+  -i, --input         Input image(s) for img2img (repeat for multi-ref: -i a.jpg -i b.jpg)
   -o, --output        Output path (default: output.png)
   -W, --width         Width in pixels (default: 512)
   -H, --height        Height in pixels (default: 512)
@@ -432,6 +439,16 @@ curl http://localhost:8190/models
 
 # Cancel a queued job
 curl -X POST http://localhost:8190/cancel/a3f2b1c4...
+
+# Image-to-image with a single reference
+curl -X POST http://localhost:8190/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "oil painting", "input_image_base64": "<base64-encoded-png>"}'
+
+# Multi-reference image-to-image
+curl -X POST http://localhost:8190/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "combine styles", "input_image_base64": ["<b64_1>", "<b64_2>"]}'
 ```
 
 ### Job Queue
@@ -464,9 +481,15 @@ dj-flux2 api-generate "a red button icon" -o assets/button.png -W 256 -H 256
 
 # With upscaling
 dj-flux2 api-generate "mountain landscape" -o bg.png --upscale 2
+
+# Image-to-image (single reference)
+dj-flux2 api-generate "oil painting" -i photo.jpg -o art.png
+
+# Multi-reference image-to-image
+dj-flux2 api-generate "combine styles" -i photo1.jpg -i photo2.jpg -o combined.png
 ```
 
-All options from `generate` are supported (`-m`, `-W`, `-H`, `-s`, `-g`, `-S`, `--upscale`, `--upscale-method`), plus `--host`, `--port`, `--timeout`, and `--poll-interval` for server configuration.
+All options from `generate` are supported (`-m`, `-i`, `-W`, `-H`, `-s`, `-g`, `-S`, `--upscale`, `--upscale-method`), plus `--host`, `--port`, `--timeout`, and `--poll-interval` for server configuration.
 
 ### OpenCode Skill
 

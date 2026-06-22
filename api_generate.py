@@ -10,10 +10,17 @@ Usage:
     dj-flux2 api-generate "forest background" --width 1024 --height 512
     ./run api-generate "pixel art sword" -o sprites/sword.png --width 256 --height 256
 
+    # Image-to-image (single reference)
+    dj-flux2 api-generate "oil painting" -i photo.jpg -o art.png
+
+    # Multi-reference image-to-image
+    dj-flux2 api-generate "combine styles" -i photo1.jpg -i photo2.jpg -o combined.png
+
 Requires the API server to be running (./run serve).
 """
 
 import argparse
+import base64
 import json
 import sys
 import time
@@ -84,12 +91,26 @@ Examples:
   dj-flux2 api-generate "forest background" --width 1024 --height 512
   dj-flux2 api-generate "pixel art sword" -o sprites/sword.png -W 256 -H 256
 
+  # Image-to-image (single reference)
+  dj-flux2 api-generate "oil painting" -i photo.jpg -o art.png
+
+  # Multi-reference image-to-image
+  dj-flux2 api-generate "combine styles" -i photo1.jpg -i photo2.jpg -o combined.png
+
 The API server must be running: dj-flux2 serve (or ./run serve)
 """,
     )
     parser.add_argument("prompt", help="Text prompt describing the image")
     parser.add_argument(
         "-o", "--output", default="output.png", help="Output file path (default: output.png)"
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=str,
+        action="append",
+        default=None,
+        help="Input image(s) for img2img. Repeat for multi-ref: -i img1.jpg -i img2.jpg",
     )
     parser.add_argument("-m", "--model", default=None, help="Model name")
     parser.add_argument("-W", "--width", type=int, default=None, help="Image width")
@@ -151,6 +172,21 @@ The API server must be running: dj-flux2 serve (or ./run serve)
     if args.upscale:
         request_body["upscale"] = args.upscale
         request_body["upscale_method"] = args.upscale_method
+
+    # Encode input image(s) for img2img
+    if args.input:
+        encoded_images: list[str] = []
+        for img_path in args.input:
+            p = Path(img_path)
+            if not p.exists():
+                print(f"Error: Input image not found: {img_path}", file=sys.stderr)
+                sys.exit(1)
+            encoded_images.append(base64.b64encode(p.read_bytes()).decode())
+        # Single image → send as string for backward compat; multiple → list
+        if len(encoded_images) == 1:
+            request_body["input_image_base64"] = encoded_images[0]
+        else:
+            request_body["input_image_base64"] = encoded_images
 
     # Submit
     try:

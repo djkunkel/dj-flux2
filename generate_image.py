@@ -182,7 +182,7 @@ model_cache = ModelCache()
 def generate_image(
     prompt: str,
     output_path: str = "output.png",
-    input_image: str = None,
+    input_image: str | list[str] | None = None,
     width: int = 512,
     height: int = 512,
     num_steps: int = None,
@@ -195,7 +195,8 @@ def generate_image(
     Args:
         prompt: Text description of the image to generate
         output_path: Where to save the generated image
-        input_image: Optional input image path for image-to-image generation
+        input_image: Optional input image path(s) for image-to-image generation.
+            Pass a single path string or a list of paths for multi-reference editing.
         width: Image width in pixels (must be multiple of 16)
         height: Image height in pixels (must be multiple of 16)
         num_steps: Number of denoising steps (None = model default)
@@ -225,11 +226,21 @@ def generate_image(
     if seed is None:
         seed = torch.randint(0, 2**32, (1,)).item()
 
-    mode = "Image-to-Image" if input_image else "Text-to-Image"
+    # Normalize input_image to a list (or empty list)
+    input_images: list[str] = []
+    if isinstance(input_image, str):
+        input_images = [input_image]
+    elif isinstance(input_image, list):
+        input_images = list(input_image)
+
+    mode = ("Multi-Ref Image-to-Image" if len(input_images) > 1
+            else "Image-to-Image" if input_images
+            else "Text-to-Image")
     print(f"{model_name} - {mode}")
     print(f"Prompt: {prompt}")
-    if input_image:
-        print(f"Input: {input_image}")
+    for i, path in enumerate(input_images):
+        label = f"Input[{i}]" if len(input_images) > 1 else "Input"
+        print(f"{label}: {path}")
     print(
         f"Size: {width}x{height}, Steps: {num_steps}, "
         f"Guidance: {guidance}{'(fixed)' if is_distilled else ''}, Seed: {seed}"
@@ -271,12 +282,13 @@ def generate_image(
             ctx = torch.cat([ctx_empty, ctx_prompt], dim=0)
         ctx, ctx_ids = batched_prc_txt(ctx)
 
-        # Encode reference image if provided
+        # Encode reference image(s) if provided
         ref_tokens = None
         ref_ids = None
-        if input_image:
-            print("  Encoding reference image...")
-            img_ctx = [Image.open(input_image)]
+        if input_images:
+            n = len(input_images)
+            print(f"  Encoding {n} reference image{'s' if n > 1 else ''}...")
+            img_ctx = [Image.open(p) for p in input_images]
             ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
         # Move text encoder and ae to CPU to free VRAM for transformer.
@@ -354,8 +366,8 @@ def generate_image(
     exif_data[ExifTags.Base.Software] = f"FLUX.2 {model_display_name}"
     exif_data[ExifTags.Base.Make] = "Black Forest Labs"
     desc = f"Prompt: {prompt} | Seed: {seed}"
-    if input_image:
-        desc += f" | Input: {input_image}"
+    if input_images:
+        desc += f" | Input: {', '.join(input_images)}"
     exif_data[ExifTags.Base.ImageDescription] = desc
 
     img.save(output_path, exif=exif_data)
@@ -406,6 +418,9 @@ Examples:
   # Image-to-image
   python generate_image.py "oil painting" -i photo.jpg -o art.png
 
+  # Multi-reference image-to-image
+  python generate_image.py "combine styles" -i photo1.jpg -i photo2.jpg -o combined.png
+
   # 4x AI upscale to 2048x2048
   python generate_image.py "detailed scene" --upscale 4
 """,
@@ -422,8 +437,9 @@ Examples:
         "-i",
         "--input",
         type=str,
+        action="append",
         default=None,
-        help="Input image for image-to-image transformation",
+        help="Input image(s) for img2img. Repeat for multi-ref: -i img1.jpg -i img2.jpg",
     )
     parser.add_argument(
         "-m",

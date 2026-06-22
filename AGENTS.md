@@ -7,7 +7,7 @@
 Minimal FLUX.2 Klein 4B inference implementation using official BFL code as a git submodule. Focus: simplicity, clarity, and educational value.
 
 **Key features:**
-- Text-to-image and image-to-image generation
+- Text-to-image and image-to-image generation (single or multi-reference)
 - Interactive PySide6 (Qt6) GUI for experimentation
 - Traditional (Lanczos) and AI-based (Real-ESRGAN via Spandrel) upscaling
 - Minimal dependencies, educational code structure
@@ -35,10 +35,13 @@ pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ./run generate "prompt" -W 1024 -H 1024          # High resolution
 ./run generate "prompt" --upscale 2              # With upscaling
 ./run img2img "style prompt" -i input.png        # Image-to-image
+./run img2img "combine" -i a.jpg -i b.jpg        # Multi-reference img2img
 ./run upscale -i input.png -o output.png         # Upscale existing image
 ./run serve                                      # Start HTTP API server (0.0.0.0:8190)
 ./run serve --port 9000                          # Custom port
 ./run api-generate "prompt" -o out.png           # Generate via API (blocking)
+./run api-generate "style" -i ref.jpg -o out.png # img2img via API
+./run api-generate "combine" -i a.jpg -i b.jpg   # Multi-ref img2img via API
 ./run skill                                      # Install OpenCode skill to CWD
 ./run download                                   # Download models
 ./run config                                     # Show current config
@@ -70,8 +73,11 @@ python generate_image.py "prompt"
 # Test text-to-image
 ./run generate "test image" -o test.png -S 42
 
-# Test img2img
+# Test img2img (single reference)
 ./run img2img "pencil sketch" -i test.png -o sketch.png
+
+# Test img2img (multi-reference)
+./run img2img "combine styles" -i test.png -i sketch.png -o combined.png
 
 # Verify imports work
 ./run python -c "from flux2.util import load_flow_model; print('✓ OK')"
@@ -141,8 +147,8 @@ def generate_image(
 - **Variables**: `snake_case` (e.g., `model_name`, `input_image`)
 - **Constants**: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_STEPS = 4`)
 - **Classes**: `PascalCase` — several exist: `ModelCache`, `GuiState`, `GenerationWorker`,
-  `FluxGUI`, `ImagePreviewPanel`, `LeftConfigPanel`, `RightImagePanel`. Avoid adding more
-  unless genuinely necessary.
+  `FluxGUI`, `ImagePreviewPanel`, `MultiImagePreviewPanel`, `LeftConfigPanel`, `RightImagePanel`.
+  Avoid adding more unless genuinely necessary.
 - **Private methods/helpers**: `_leading_underscore` is used throughout the GUI classes (e.g.,
   `_setup_ui`, `_on_mode_change`, `_upscale_realesrgan`). Keep private helpers private.
 
@@ -176,8 +182,8 @@ if seed is None:
 ```
 Project root only:
 ├── gui_generate.py      # GUI business logic: FluxGUI, GuiState, GenerationWorker
-├── gui_components.py    # GUI widget classes: ImagePreviewPanel, LeftConfigPanel,
-│                        #   RightImagePanel, open_image_file_dialog
+├── gui_components.py    # GUI widget classes: ImagePreviewPanel, MultiImagePreviewPanel,
+│                        #   LeftConfigPanel, RightImagePanel, open_image_file_dialog
 ├── generate_image.py    # Main inference script + ModelCache singleton + read_config()
 ├── serve_api.py         # HTTP API server (FastAPI + uvicorn): job queue, REST + WebSocket
 ├── api_generate.py      # Blocking CLI wrapper: submit to API, poll, download result
