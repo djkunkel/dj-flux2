@@ -37,6 +37,9 @@ cd dj-flux2
 ./setup rocm-nightly # AMD RDNA4 (RX 9700), ROCm 7.14 nightly (multi-arch)
 ./setup cpu          # CPU only
 
+# rocm-nightly: override the target GPU architecture (default: gfx1201 for RX 9700)
+ROCM_GFX=gfx1100 ./setup rocm-nightly   # e.g. RX 7900 XTX
+
 # Then use ./run from the repo, or dj-flux2 from anywhere
 ./run gui
 ./run generate "prompt"

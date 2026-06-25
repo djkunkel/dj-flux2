@@ -34,7 +34,7 @@ set -euo pipefail
 # Multi-arch nightly index — no date pin needed, pip picks the latest build
 # ---------------------------------------------------------------------------
 ROCM_MULTIARCH_INDEX="https://rocm.nightlies.amd.com/whl-multi-arch/"
-ROCM_GFX_TARGET="gfx1201"   # AMD Radeon RX 9070 / XT (RDNA4)
+ROCM_GFX_TARGET="${ROCM_GFX:-gfx1201}"   # AMD Radeon RX 9070 / XT (RDNA4); override via ROCM_GFX env var
 # ---------------------------------------------------------------------------
 
 BACKEND_FILE=".gpu-backend"
