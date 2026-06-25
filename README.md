@@ -4,366 +4,161 @@ Minimal FLUX.2 Klein image generation with GPU support (NVIDIA/CUDA and AMD/ROCm
 
 ## Features
 
-- 🚀 **Fast**: Sub-second generation on RTX 4070 (4-step distilled models)
-- 🎨 **Text-to-Image**: Generate images from text descriptions
-- 🖼️ **Image-to-Image**: Transform images with prompts (single or multi-reference)
-- 🖥️ **GUI Interface**: Modern PySide6 (Qt6) app for easy experimentation
-- 🔍 **Real-time Preview**: See results side-by-side before saving
-- 🤖 **Multiple Models**: Klein 4B/9B (distilled) and base variants
-- 💾 **Minimal**: Small codebase + BFL submodule
-- 🎓 **Educational**: Clear code structure for learning
-- 🔧 **GPU Accelerated**: Runs on NVIDIA (CUDA) and AMD (ROCm) GPUs
+- Text-to-Image and Image-to-Image (single or multi-reference)
+- Interactive PySide6 (Qt6) GUI with side-by-side preview
+- Multiple models: Klein 4B/9B (distilled) and base variants
+- Lanczos and AI (Real-ESRGAN) upscaling
+- HTTP API server with WebSocket progress
+- NVIDIA (CUDA) and AMD (ROCm) GPU support
 
 ## Requirements
 
 - Python 3.10+ (3.12+ recommended)
-- NVIDIA GPU with 8+ GB VRAM (RTX 3080/4070 or better; 12 GB recommended for 1024x1024), **or** AMD GPU with 8+ GB VRAM (RX 6000/7000/9000 series, RDNA 2+)
+- NVIDIA GPU with 8+ GB VRAM, **or** AMD GPU with 8+ GB VRAM (RX 6000/7000/9000 series, RDNA 2+)
 - CUDA 12.x (NVIDIA) or ROCm 7.2+ (AMD)
 - ~13 GB disk space for models
 
 ## Quick Start
 
-### Installation Options
-
-**Setup:**
 ```bash
 git clone --recurse-submodules https://github.com/yourusername/dj-flux2.git
 cd dj-flux2
 
-# One-time setup per machine — installs wheels, writes .gpu-backend,
-# and puts dj-flux2 in ~/.local/bin so it works from any directory
+# One-time setup — installs wheels, writes .gpu-backend, adds dj-flux2 to ~/.local/bin
 ./setup cuda         # NVIDIA GPU (CUDA 12.6)
 ./setup rocm         # AMD GPU, ROCm 7.2 stable (RDNA 2/3)
 ./setup rocm-nightly # AMD RDNA4 (RX 9700), ROCm 7.14 nightly (multi-arch)
 ./setup cpu          # CPU only
 
-# rocm-nightly: override the target GPU architecture (default: gfx1201 for RX 9700)
+# rocm-nightly: override target GPU architecture (default: gfx1201 for RX 9700)
 ROCM_GFX=gfx1100 ./setup rocm-nightly   # e.g. RX 7900 XTX
 
-# Then use ./run from the repo, or dj-flux2 from anywhere
-./run gui
-./run generate "prompt"
-dj-flux2 generate "prompt"   # from any directory
+# Then generate
+./run generate "a cute cat on a windowsill"
+dj-flux2 generate "a cute cat on a windowsill"   # from any directory
+```
 
-# Using traditional pip (CUDA example)
-python -m venv .venv
-source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
+Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2+). APU/iGPU not supported. No code changes required — PyTorch's ROCm backend reuses the `torch.cuda` API identically.
+
+**Using traditional pip (CUDA example):**
+```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[cuda]" --index-url https://download.pytorch.org/whl/cu126
 ```
 
-Supported AMD GPUs: RX 6000 / 7000 / 9000 series (RDNA 2 or newer). Integrated/APU GPUs (e.g. Radeon 890M) are **not** supported by ROCm. No code changes are required — PyTorch's ROCm backend reuses the `torch.cuda` API identically.
+### Hugging Face Access
 
-### Setup Hugging Face Access
+FLUX.2 Klein models are gated. Accept the license for each model you want to use:
 
-FLUX.2 Klein models are gated and require accepting license terms before first use:
-
-1. Create account: https://huggingface.co/join
-2. Accept the license for **each** model you want to use. The gates are
-   per-repo — accepting one does not unlock the others, and a model only
-   downloads after its own gate is accepted:
+1. Create account and token: https://huggingface.co/settings/tokens
+   - Enable: "Read access to contents of all public gated repos"
+2. Accept the license for each model:
    - https://huggingface.co/black-forest-labs/FLUX.2-dev *(required — shared autoencoder)*
    - https://huggingface.co/black-forest-labs/FLUX.2-klein-4B *(default)*
    - https://huggingface.co/black-forest-labs/FLUX.2-klein-9B *(optional)*
-   - https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv *(optional; high VRAM — see note below)*
+   - https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv *(optional; high VRAM)*
    - https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B *(optional)*
    - https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B *(optional)*
-3. Create token: https://huggingface.co/settings/tokens
-   - Enable: "Read access to contents of all public gated repos"
-4. Login:
-   ```bash
-   hf auth login
-   ```
+3. Login: `hf auth login`
 
-A single token works for all repos — you only create it once. If a generation
-fails with "Failed to access the model repository", it almost always means the
-license gate for that specific model has not been accepted yet (the token
-itself is fine).
+**FLUX models download automatically on first use.** If generation fails with "Failed to access the model repository", the license gate for that specific model has not been accepted yet.
 
-> **`flux.2-klein-9b-kv` note:** Same 9B architecture and checkpoint size
-> (~17 GB) as `flux.2-klein-9b` — it is *not* a larger model. The `-kv` weights
-> add KV-cache support that speeds up multi-reference image editing (~2.5x) by
-> caching the reference images' key/value tensors across denoising steps. That
-> cache is extra runtime VRAM on top of the weights, pushing peak usage to
-> roughly 29 GB for heavy editing workloads (32 GB-class GPUs). For plain
-> text-to-image there is nothing to cache, so it offers no advantage over
-> regular `flux.2-klein-9b`.
+> **`flux.2-klein-9b-kv` note:** Same size as `flux.2-klein-9b` (~17 GB). Adds KV-cache support that speeds up multi-reference img2img (~2.5x) by caching reference key/value tensors across denoising steps. Peak VRAM ~29 GB for heavy editing (32 GB-class GPUs). No advantage over regular `flux.2-klein-9b` for plain text-to-image.
 
-**FLUX models download automatically on first use** — no manual download step required. The first generation will take a few minutes longer while weights are fetched from HuggingFace to `~/.cache/huggingface/hub/`.
+### Real-ESRGAN Models (optional)
 
-### Download Real-ESRGAN Models (optional)
-
-Real-ESRGAN upscaling weights are not on HuggingFace and must be downloaded separately before using `--upscale-method realesrgan`:
+Required for `--upscale-method realesrgan`. Downloads ~128 MB to `models/realesrgan/`:
 
 ```bash
-./run download
-# or from any directory:
 dj-flux2 download
 ```
-
-This downloads (~128 MB total) to `models/realesrgan/`:
-- Real-ESRGAN 2x model (64 MB)
-- Real-ESRGAN 4x model (64 MB)
-
-### Generate Your First Image
-
-```bash
-./run generate "a cute cat sitting on a windowsill"
-# or from any directory:
-dj-flux2 generate "a cute cat sitting on a windowsill"
-```
-
-Output: `output.png`
 
 ## Usage
 
-### GUI Interface (Interactive)
-
-For interactive experimentation with real-time preview, use the GUI tool:
+### GUI
 
 ```bash
 ./run gui
-# or from any directory:
-dj-flux2 gui
+dj-flux2 gui   # from any directory
 ```
 
-**Note:** Run `./setup <backend>` once after cloning. This installs the correct GPU wheel and writes `~/.local/bin/dj-flux2` so the GUI can also be launched with `dj-flux2 gui` from any directory.
+The GUI provides txt2img and img2img modes, multi-reference input, side-by-side preview, model selector, upscaling, and persistent model caching (first generation ~15-25s, subsequent ~2-5s on RTX 4070).
 
-**The GUI provides:**
-- **Two modes**: Text-to-Image and Image-to-Image
-- **Multi-reference img2img**: Add multiple reference images for style blending and multi-source editing
-- **Side-by-side preview**: See input and output images together (img2img mode)
-- **Auto-load workflow**: Switch to img2img and the last generated image loads as input automatically
-- **Per-mode prompts**: Separate prompt history for txt2img and img2img — switching modes never clears your work
-- **Model selector**: Choose between Klein 4B, 9B, base-4B, and base-9B; guidance/steps grey out automatically for distilled models
-- **All parameters**: Prompt, width, height, steps, guidance, seed
-- **Upscaling support**: Optional Lanczos or Real-ESRGAN upscaling
-- **Model caching**: First generation loads models (~15-25s), subsequent generations are 5-10x faster (2-5s)
-- **Auto-download**: Models download automatically on first use with clear error messages if access is not yet granted
-- **Memory management**: Smart VRAM handling prevents out-of-memory errors
-- **Easy experimentation**: Adjust parameters and regenerate instantly
-- **Save when ready**: Only save images you like
-- **Seed management**: Copy and reuse seeds for reproducibility
-- **Modern Qt6 interface**: Professional, cross-platform GUI framework
-- **Unload models**: Free GPU memory when finished generating
+### Command Line
 
-**Perfect for:**
-- Experimenting with different prompts
-- Fine-tuning generation parameters
-- Quick iteration on img2img transformations
-- Visual comparison of results
-- Batch generation workflows (models stay loaded)
-
-### Command Line Options
-
-This project supports multiple ways to run commands:
-
-**`dj-flux2` (from any directory, after `./setup`):**
-```bash
-dj-flux2 generate "prompt"
-dj-flux2 gui
-dj-flux2 serve
-dj-flux2 api-generate "prompt" -o out.png
-dj-flux2 skill
-dj-flux2 upscale -i input.png -o output.png
-dj-flux2 download
-```
-- ✅ Works from any directory (installed to `~/.local/bin` by `./setup`)
-- ✅ Always uses the correct GPU backend and env vars
-- ✅ Thin wrapper around `./run` — no separate environment
-
-**`./run` (from the repo directory):**
-```bash
-./run generate "prompt"
-./run gui
-./run serve
-./run api-generate "prompt" -o out.png
-./run skill
-./run upscale -i input.png -o output.png
-```
-- ✅ Same behaviour as `dj-flux2`, directly in the repo
-
-**Activated virtual environment:**
-```bash
-source .venv/bin/activate  # Activate once per terminal session
-python generate_image.py "prompt"
-python gui_generate.py
-python serve_api.py
-python api_generate.py "prompt" -o out.png
-python upscale_image.py -i input.png -o output.png
-```
-- ✅ Traditional Python workflow, useful for debugging
-
-### Text-to-Image
+`dj-flux2` (installed to `~/.local/bin` by `./setup`) and `./run` are equivalent. All examples below work with either.
 
 ```bash
-# Basic usage (default 512x512)
-dj-flux2 generate "a majestic mountain landscape at sunset"
+# Text-to-image
+dj-flux2 generate "a majestic mountain at sunset"
+dj-flux2 generate "a robot" -o my_robot.png -W 768 -H 768 -S 42
 
-# With custom output path
-dj-flux2 generate "a robot" -o my_robot.png
-
-# Native high resolution (requires 16GB+ VRAM)
-dj-flux2 generate "detailed portrait" -W 1024 -H 1024
-
-# Reproducible with seed
-dj-flux2 generate "abstract art" -S 42
-```
-
-### High-Resolution Generation
-
-**Three approaches for high-resolution images:**
-
-**1. Native generation** (if you have 16GB+ VRAM):
-```bash
-dj-flux2 generate "detailed cityscape" -W 1024 -H 1024
-```
-
-**2. Lanczos upscaling** (fast, CPU-based):
-```bash
-dj-flux2 generate "detailed cityscape" --upscale 2 --upscale-method lanczos
-dj-flux2 generate "epic landscape" --upscale 4 --upscale-method lanczos
-```
-
-**3. AI upscaling with Real-ESRGAN** (best quality, default when using --upscale):
-```bash
-# First, download the AI upscaling models (~128 MB)
-dj-flux2 download --upscale-only
-
-# Generate and AI upscale to 1024x1024 in one step (default)
-dj-flux2 generate "detailed cityscape" -o output.png --upscale 2
-
-# Generate and AI upscale to 2048x2048 in one step
-dj-flux2 generate "epic landscape" -o output.png --upscale 4
-
-# Or explicitly use Lanczos for faster CPU-based upscaling
-dj-flux2 generate "detailed cityscape" -o output.png --upscale 2 --upscale-method lanczos
-```
-
-> **Note:** When using `--upscale`, only the final upscaled image is saved to your output path. A temporary intermediate image is used during processing and automatically deleted.
-
-**Upscale existing images:**
-```bash
-# Lanczos (fast, CPU)
-dj-flux2 upscale -i input.png -o output.png --scale 2
-
-# AI upscaling (better quality, GPU)
-dj-flux2 upscale -i input.png -o output.png --scale 2 --method realesrgan
-```
-
-**Quality comparison:**
-- **Real-ESRGAN** (default): AI-based upscaling with superior detail recovery, ~2-5s, best for recovering fine textures and faces
-- **Lanczos**: Professional-grade traditional upscaling (Photoshop/GIMP), fast (~0.5s), excellent when speed matters
-
-### Image-to-Image
-
-Transform existing images:
-
-```bash
-# Turn photo into oil painting
-dj-flux2 generate "oil painting in impressionist style" -i photo.jpg -o painting.png
-
-# Convert to pencil sketch
-dj-flux2 generate "pencil sketch, detailed line art, black and white" -i portrait.jpg -o sketch.png
-
-# Style transfer
-dj-flux2 generate "watercolor painting with soft colors" -i landscape.jpg -o watercolor.png
-
-# Multi-reference: combine styles from multiple images
+# Image-to-image (single or multi-reference)
+dj-flux2 generate "oil painting" -i photo.jpg -o painting.png
 dj-flux2 generate "combine these styles" -i photo1.jpg -i photo2.jpg -o combined.png
 
-# Multi-reference: blend content from several sources
-dj-flux2 generate "merge into one scene" -i bg.jpg -i subject.jpg -i texture.jpg -o merged.png
+# Upscaling (generate then upscale)
+dj-flux2 generate "detailed cityscape" --upscale 2               # AI upscale (default)
+dj-flux2 generate "detailed cityscape" --upscale 2 --upscale-method lanczos
+
+# Upscale an existing image
+dj-flux2 upscale -i input.png -o output.png --scale 2 --method realesrgan
+
+# API server
+dj-flux2 serve                     # 0.0.0.0:8190
+dj-flux2 api-generate "prompt" -o out.png   # blocking client
+
+# Other
+dj-flux2 download     # download Real-ESRGAN models
+dj-flux2 config       # show/set persistent defaults
+dj-flux2 skill        # install OpenCode skill to CWD
 ```
 
 ### All Options
 
-```bash
-dj-flux2 generate --help
-dj-flux2 gui                # Launch GUI (no options)
-dj-flux2 serve --help       # Start HTTP API server
-dj-flux2 api-generate --help # Generate via API (blocking)
-dj-flux2 skill              # Install OpenCode skill to CWD
-dj-flux2 upscale --help
-dj-flux2 download --help
 ```
+dj-flux2 generate [options] prompt
 
-```
-Options:
-  prompt              Text prompt (required)
-  -m, --model         Model to use (default: flux.2-klein-4b)
-                        flux.2-klein-4b       4B distilled (fast, steps/guidance fixed)
-                        flux.2-klein-9b       9B distilled (higher quality)
-                        flux.2-klein-base-4b  4B base (guidance meaningful, ~50 steps)
-                        flux.2-klein-base-9b  9B base
-  -i, --input         Input image(s) for img2img (repeat for multi-ref: -i a.jpg -i b.jpg)
+  -m, --model         flux.2-klein-4b (default), flux.2-klein-9b,
+                      flux.2-klein-base-4b, flux.2-klein-base-9b
+  -i, --input         Input image for img2img (repeat for multi-ref: -i a.jpg -i b.jpg)
   -o, --output        Output path (default: output.png)
   -W, --width         Width in pixels (default: 512)
   -H, --height        Height in pixels (default: 512)
-  -s, --steps         Denoising steps (default: model default)
-  -g, --guidance      Guidance scale (default: model default; ignored for distilled models)
-  -S, --seed          Random seed for reproducibility
-  --upscale           Upscale output by 2x or 4x (uses AI by default)
-  --upscale-method    realesrgan (AI, default) or lanczos (fast, CPU)
+  -s, --steps         Denoising steps
+  -g, --guidance      Guidance scale (ignored for distilled models)
+  -S, --seed          Random seed
+  --upscale           Upscale factor: 2 or 4
+  --upscale-method    realesrgan (default) or lanczos
 ```
+
+### High-Resolution Images
+
+Native generation is limited by VRAM (12 GB → ~1024x1024; 24 GB+ → 2048x2048). For larger output, generate at 512x512 and upscale:
+
+```bash
+dj-flux2 generate "detailed cityscape" --upscale 2   # → 1024x1024, AI quality
+dj-flux2 generate "detailed cityscape" --upscale 4   # → 2048x2048
+dj-flux2 generate "detailed cityscape" --upscale 2 --upscale-method lanczos   # fast, CPU
+```
+
+| Method | Speed (2x) | Quality | VRAM |
+|--------|-----------|---------|------|
+| Real-ESRGAN (default) | ~2-5s | Superior | +2 GB |
+| Lanczos | ~0.5s | Excellent | None (CPU) |
+
+All dimensions must be multiples of 16.
 
 ## Performance
 
-### Generation Speed (RTX 4070, 512x512)
-
 | Operation | Time | Notes |
 |-----------|------|-------|
-| **CLI - Cold start** | ~15s | Loads models from disk |
-| **CLI - Warm generation** | ~7s | Models still in HF cache |
-| **GUI - First generation** | ~15-25s | Loads and caches models in RAM |
-| **GUI - Subsequent** | **2-5s** | Uses cached models (5-10x faster!) |
+| CLI — cold start | ~15s | Loads models from disk |
+| CLI — warm | ~7s | Models in HF cache |
+| GUI — first generation | ~15-25s | Loads and caches models |
+| GUI — subsequent | **2-5s** | Reuses cached models |
 
-### Model Caching (GUI Only)
-
-The GUI uses intelligent model caching for dramatic speedups:
-
-- **First generation**: Loads models from disk (~15-25s)
-- **Subsequent generations**: Reuses cached models (~2-5s) 
-  - **Memory trade-off**: Keeps ~4 GB of models in RAM for instant access
-- **VRAM management**: Automatically shuffles models between CPU/GPU to prevent OOM errors
-- **User control**: "Unload Models" button frees memory when finished
-
-**How it works:**
-1. Models load once and stay in system RAM
-2. During generation, models move to GPU only when needed
-3. After generation, large transformer returns to CPU to free VRAM
-4. Next generation transfers from RAM → GPU (~500ms vs 15s from disk)
-
-This makes the GUI perfect for iterative workflows where you generate multiple images in one session.
-
-### Memory Usage
-
-- **VRAM**: ~4-5 GB peak during generation (models are shuffled on/off GPU in stages), ~0.2 GB idle
-- **RAM**: ~8 GB (includes ~4 GB cached models when GUI has generated images)
-- **Disk cache**: ~13 GB (Hugging Face model cache)
-
-### Resolution Limits
-
-**Native generation:**
-- **Minimum**: 64x64
-- **Default**: 512x512
-- **Model maximum**: 4 megapixels, e.g. 2048x2048 (any aspect ratio)
-- **Practical maximum**: Limited by GPU VRAM
-  - 12GB VRAM: Up to 1024x1024
-  - 16GB VRAM: Up to 1280x1280
-  - 24GB+ VRAM: Up to 2048x2048 (the model's 4MP ceiling)
-
-**With upscaling:**
-
-| Method | Speed (2x) | Quality | VRAM | Setup Required |
-|--------|-----------|---------|------|----------------|
-| **Real-ESRGAN** (default) | ~2-5s | Superior | +2GB | Download models |
-| **Lanczos** | ~0.5s | Excellent | None (CPU) | None |
-
-- No VRAM limitations for final output size
-- Generate at 512x512, upscale to 1024x1024 or 2048x2048
-- Real-ESRGAN provides best results for recovering fine details, textures, and faces
-
-**Note:** All dimensions must be multiples of 16.
+Figures for RTX 4070, 512×512. The GUI keeps models in RAM between generations; the "Unload Models" button frees that memory when you're done.
 
 ## Architecture
 
@@ -374,184 +169,99 @@ Text Prompt → Qwen3 encoder → FLUX.2 Klein transformer → VAE Decoder → I
           9B: Qwen3-8B-FP8       9B: larger transformer
 ```
 
-**Distilled models** (klein-4b, klein-9b): guidance scale is baked into the weights — the parameter has no effect. Steps and guidance are fixed at 4 and 1.0 respectively. The GUI greys these controls out automatically.
+**Distilled models** (klein-4b, klein-9b, klein-9b-kv): guidance is baked into the weights; steps and guidance are fixed. The GUI greys these controls out automatically.
 
-**Base models** (klein-base-4b, klein-base-9b): use classifier-free guidance (two forward passes per step). Guidance and steps are fully meaningful; defaults are 4.0 and 50.
+**Base models** (klein-base-4b, klein-base-9b): classifier-free guidance, two forward passes per step. Defaults: guidance 4.0, steps 50.
 
-The VRAM choreography keeps at most one large model on GPU at a time: the text encoder and autoencoder are swapped to CPU during the transformer's denoising pass, then the transformer returns to CPU before the autoencoder decodes the result.
+VRAM choreography keeps at most one large model on GPU at a time, swapping text encoder and autoencoder to CPU around the transformer's denoising pass.
 
 ## Configuration
 
-Set persistent defaults so you don't have to repeat flags on every command:
+Persistent defaults, stored in `.dj-flux2.conf` (gitignored):
 
 ```bash
-./run config                          # Show current settings
-./run config model flux.2-klein-9b    # Set default model
-./run config width 768                # Set default width
-./run config height 768               # Set default height
-./run config steps 4                  # Set default steps
-./run config guidance 1.0             # Set default guidance
+./run config                        # show current settings
+./run config model flux.2-klein-9b
+./run config width 768
+./run config height 768
+./run config steps 4
+./run config guidance 1.0
 ```
 
-Settings are stored in `.dj-flux2.conf` (gitignored) next to the repo. CLI flags always override config, so `-m`, `-W`, `-H`, `-s`, `-g` still work as usual.
-
-The GUI reads the same config on launch and pre-populates all controls. **Clear** also restores config defaults rather than hardcoded values.
-
-**Note:** `steps` and `guidance` are ignored by distilled models (`flux.2-klein-4b`, `flux.2-klein-9b`, `flux.2-klein-9b-kv`) — a warning is shown when you set them for a distilled model.
+CLI flags always override config. The GUI reads config on launch and pre-populates all controls.
 
 ## HTTP API Server
 
-Start a REST API server for programmatic image generation:
-
 ```bash
-./run serve                  # Start on 0.0.0.0:8190 (default)
-./run serve --port 9000      # Custom port
+./run serve              # 0.0.0.0:8190
+./run serve --port 9000
 ```
 
-Interactive API documentation is available at `http://localhost:8190/docs` once the server is running.
-
-### Endpoints
+Interactive docs: `http://localhost:8190/docs`
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/generate` | Submit a generation request (returns a token) |
-| `GET` | `/status/{token}` | Check job status and progress |
-| `GET` | `/result/{token}` | Download the completed image (PNG) |
-| `GET` | `/queue` | List all jobs and their statuses |
+| `POST` | `/generate` | Submit a job (returns token) |
+| `GET` | `/status/{token}` | Job status |
+| `GET` | `/result/{token}` | Download completed image |
+| `GET` | `/queue` | List all jobs |
 | `POST` | `/cancel/{token}` | Cancel a queued job |
-| `GET` | `/models` | List supported models and loaded model info |
-| `WS` | `/ws/{token}` | WebSocket for real-time progress updates |
-
-### Example Usage
+| `GET` | `/models` | List supported/loaded models |
+| `WS` | `/ws/{token}` | Real-time progress updates |
 
 ```bash
-# Submit a generation request
+# Submit
 curl -X POST http://localhost:8190/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "a castle on a hill", "width": 512, "height": 512}'
 # → {"token": "a3f2b1c4..."}
 
-# Check status
+# Poll and download
 curl http://localhost:8190/status/a3f2b1c4...
-
-# Download the result (once completed)
 curl http://localhost:8190/result/a3f2b1c4... -o castle.png
 
-# List available models
-curl http://localhost:8190/models
-
-# Cancel a queued job
-curl -X POST http://localhost:8190/cancel/a3f2b1c4...
-
-# Image-to-image with a single reference
-curl -X POST http://localhost:8190/generate \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "oil painting", "input_image_base64": "<base64-encoded-png>"}'
-
-# Multi-reference image-to-image
+# Multi-reference img2img
 curl -X POST http://localhost:8190/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "combine styles", "input_image_base64": ["<b64_1>", "<b64_2>"]}'
 ```
 
-### Job Queue
+Jobs are ordered by model name first (to minimise GPU reloads), then FIFO. Queue limit: 50 jobs. Images saved to `output/` with timecoded filenames.
 
-Jobs are processed sequentially, ordered by **model name first** (to minimise GPU model reloads between jobs), then by submission time (FIFO). The queue accepts up to 50 pending jobs before returning `429 Too Many Requests`.
-
-Generated images are stored in the `output/` directory with timecoded filenames (e.g., `output/20260620_143015_a3f2b1c4.png`).
-
-### WebSocket Progress
-
-Connect to `/ws/{token}` after submitting a job to receive real-time progress updates:
-
-```
-ws://localhost:8190/ws/{token}
-```
-
-Messages are JSON objects with a `type` field:
-- `{"type": "progress", "status": "queued", "queue_position": 3, "progress": "Queued"}`
-- `{"type": "progress", "status": "running", "queue_position": null, "progress": "Generating image..."}`
-- `{"type": "complete", "status": "completed", "seed": 42, "error": null}`
-- `{"type": "error", "status": "failed", "seed": null, "error": "GPU out of memory..."}`
+Connect to `/ws/{token}` after submitting to receive JSON progress messages (`queued` → `running` → `complete`/`error`).
 
 ### Blocking CLI Client
 
-For scripts and AI agents, `api-generate` wraps the full submit/poll/download cycle into a single blocking command:
-
 ```bash
-# Generate an image (blocks until complete, saves to file)
 dj-flux2 api-generate "a red button icon" -o assets/button.png -W 256 -H 256
-
-# With upscaling
-dj-flux2 api-generate "mountain landscape" -o bg.png --upscale 2
-
-# Image-to-image (single reference)
 dj-flux2 api-generate "oil painting" -i photo.jpg -o art.png
-
-# Multi-reference image-to-image
 dj-flux2 api-generate "combine styles" -i photo1.jpg -i photo2.jpg -o combined.png
 ```
 
-All options from `generate` are supported (`-m`, `-i`, `-W`, `-H`, `-s`, `-g`, `-S`, `--upscale`, `--upscale-method`), plus `--host`, `--port`, `--timeout`, and `--poll-interval` for server configuration.
+Supports all `generate` flags plus `--host`, `--port`, `--timeout`, `--poll-interval`.
 
 ### OpenCode Skill
 
-Install the `generate-image` skill into any project so OpenCode agents can generate image assets:
-
 ```bash
-# From your project directory (not the dj-flux2 repo)
+# From your project directory
 dj-flux2 skill
-
-# The skill is now available to OpenCode agents in this project
-# Agents will see it and can load it when they need to generate images
 ```
 
-This copies the skill to `.opencode/skills/generate-image/SKILL.md` in the current directory. The skill teaches agents how to use `dj-flux2 api-generate` effectively — including prompt guidelines for different asset types (icons, textures, sprites, backgrounds).
+Installs `.opencode/skills/generate-image/SKILL.md` so OpenCode agents in that project can generate image assets via `dj-flux2 api-generate`.
 
 ## Troubleshooting
 
-### Out of Memory
+**Out of memory:** Use `--upscale 2` instead of a large native resolution, or reduce `-W`/`-H`.
 
-If native generation causes OOM errors at large resolutions, use upscaling instead:
-
+**GPU not detected:**
 ```bash
-# Instead of a very large native resolution:
-# Use: --upscale 2 (generates 512x512, upscales to 1024x1024)
-./run generate "prompt" --upscale 2
-```
-
-Or reduce native resolution:
-```bash
-./run generate "prompt" -W 512 -H 512
-```
-
-### Slow Generation
-
-Check GPU is being used (works for both NVIDIA/CUDA and AMD/ROCm):
-```python
-import torch
-print(torch.__version__, torch.cuda.is_available())
+./run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 # NVIDIA: 2.x.x  True
 # AMD:    2.x.x+rocm7.2  True
 ```
+If `False` on AMD, re-run `./setup rocm` or `./setup rocm-nightly`.
 
-If `False` on AMD, ensure you ran `./setup rocm` or `./setup rocm-nightly` — see [Installation Options](#installation-options) above.
-
-### Model Download Fails
-
-Models download automatically on first use. If it fails:
-
-1. Accept the license for the model you're using at `huggingface.co/black-forest-labs`
-2. Accept the FLUX.2-dev license (shared autoencoder): https://huggingface.co/black-forest-labs/FLUX.2-dev
-3. Check your token has "gated repos" read access
-4. Re-login: `hf auth login`
-
-The GUI shows a clear error message with the exact URL to visit if access is not yet granted.
-
-## Learning Resources
-
-- **Black Forest Labs**: https://github.com/black-forest-labs/flux2
-- **FLUX.2 Blog**: https://bfl.ai/blog/flux2-klein
+**Model download fails:** Accept the license for each model at `huggingface.co/black-forest-labs`, including FLUX.2-dev (shared autoencoder). Re-login with `hf auth login`.
 
 ## Project Structure
 
@@ -563,32 +273,14 @@ dj-flux2/
 ├── serve_api.py           # HTTP API server (FastAPI + uvicorn)
 ├── api_generate.py        # Blocking CLI wrapper for the API server
 ├── upscale_image.py       # Lanczos and Real-ESRGAN upscaling
-├── download_models.py     # Real-ESRGAN model downloader (FLUX models auto-download)
-├── skills/                # OpenCode agent skills (installed via dj-flux2 skill)
+├── download_models.py     # Real-ESRGAN model downloader
+├── skills/                # OpenCode agent skills
 │   └── generate-image/SKILL.md
-├── flux2/                 # BFL submodule (git, do not modify)
-│   └── src/flux2/         # Core FLUX.2 architecture code
-├── pyrightconfig.json     # IDE/LSP config (resolves flux2 imports)
+├── flux2/                 # BFL submodule (do not modify)
+├── pyrightconfig.json     # IDE/LSP config
 ├── pyproject.toml         # Dependencies and entry points
-├── uv.lock                # Locked dependency versions
-└── README.md              # This file
+└── uv.lock                # Locked dependency versions
 ```
-
-## Why This Project?
-
-This is a **minimal, educational** implementation of FLUX.2 Klein:
-
-✅ **Minimal**: Small codebase (+ modern Qt6 GUI!)  
-✅ **Fast**: 4-step generation  
-✅ **Clear**: Easy to understand  
-✅ **Complete**: Text-to-image + image-to-image + interactive GUI  
-✅ **Maintainable**: BFL code via submodule  
-
-**Not included** (from full BFL repo):
-- ❌ Prompt upsampling (optional feature)
-- ❌ API client (not needed for local)
-- ❌ Training code (inference only)
-- ❌ Watermarking (can be added)
 
 ## License
 
@@ -596,23 +288,9 @@ This project: MIT License
 
 Black Forest Labs flux2 submodule: See `flux2/LICENSE.md`
 
-FLUX.2 Klein 4B model: Apache 2.0
-
-FLUX.2-dev model: Non-Commercial License
-
-## Contributing
-
-Improvements welcome! Please:
-1. Keep it minimal
-2. Add tests for new features
-3. Update documentation
+FLUX.2 Klein 4B model: Apache 2.0 | FLUX.2-dev model: Non-Commercial License
 
 ## Credits
 
 - **Black Forest Labs** for FLUX.2 Klein
-- **Antirez** for flux2.c inspiration
 - **Hugging Face** for model hosting
-
----
-
-Built for learning and experimentation. For production, use the official BFL API.
