@@ -466,8 +466,12 @@ is ready to ship as a release:
 
 1. Make sure you are on `main` with the changes merged in: `git checkout main && git pull`.
 2. Bump `version` in `pyproject.toml` to the new number.
-3. Commit it on its own: `git commit -m "chore: bump version to X.Y.Z"`.
-4. Tag that commit with a `v`-prefixed annotated tag and push both:
+3. Regenerate the lockfile so it records the new version: `uv lock`.
+4. Commit `pyproject.toml` **and** `uv.lock` together on their own:
+   `git commit -m "chore: bump version to X.Y.Z"`. The two files must land in
+   the same commit — a `uv.lock` that lags `pyproject.toml` will be rejected
+   by `uv sync` (lockfile out of date).
+5. Tag that commit with a `v`-prefixed annotated tag and push both:
    ```bash
    git tag -a vX.Y.Z -m "Release X.Y.Z"
    git push origin main vX.Y.Z
